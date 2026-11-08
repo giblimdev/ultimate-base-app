@@ -65,7 +65,11 @@ ultimate-base-app/
 
 
 
+/// non de l'app dans config.
+generer les commande dans dev
+////
 
+////avatar////
 
 
 ////
