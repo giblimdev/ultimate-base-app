@@ -1,0 +1,94 @@
+A. App : socle applicatif
+Fonctionnalités communes à toutes les applications créées à partir du socle.
+Internationalisation : sélection de langue et préférences.
+Navigation utilisateur : menu, profil, paramètres personnels.
+Gestion des thèmes : système, clair, sombre, thèmes personnalisés.
+Authentification (Better Auth uniquement) : sessions, connexion, inscription, récupération de compte. Seul Better Auth touche à la base de données.
+Gestion multi-tenant : le mécanisme est dans le socle, la signification du tenant reste métier.
+Résolution du tenant (sous-domaine, chemin ou session).
+Appartenance utilisateur ↔ tenant (membres, invitations).
+Isolation des données par tenantId.
+Mode « tenant unique » pour les projets qui n’en ont pas besoin.
+Gestion des autorisations (RBAC à trois niveaux) :
+Rôles plateforme (globaux).
+Rôles tenant (propres à chaque organisation).
+Rôles application (appRole: [Role]), gérés par /app/admin.
+Profil utilisateur : infos personnelles, avatar, préférences.
+Infrastructure technique : connexion DB réservée à Better Auth, environnements, services communs.
+Config Maker (intégré dans App) : 
+Theme Creator
+Platform Role Manager
+Permission Manager
+Language Manager (« Add Lang »)
+Tenant Manager
+B. Scrum : outils de conception et de gestion de projet (json)
+Chaîne structurée de l’idée à la tâche exploitable.
+Items (CRUD individuels) : Ideas, Personas, Features, Epics, User Stories, Sprints, Tasks, Roadmap, Documentation.
+Managers (orchestration et vues d’ensemble) : Epic Manager, User Story Manager, Sprint Manager. (DnD)
+suivi d’avancement global.
+
+
+C. Genesis : outils de développement ()
+Assistance au développement et contrôle qualité.
+Lire et ecrir  a la racines (par default) (possibilité de selction d’un dossier)
+Crud fichier
+Prompt Assist : créer, sélectionner et copier des prompts JSON.
+File Selector
+File Creator
+Header Checker
+Aide CI/CD
+TypeScript Checker (npx tsc --noEmit)
+CI/CD Manager
+Git Manager
+D. Business App : espace métier
+Tout ce qui est spécifique au produit final.
+Pages métier.
+Composants spécifiques.
+Bibliothèques et fonctions métier.
+Modèles de données et services.
+Définition métier du tenant (restaurant, école, agence…), de ses données et de ses réglages propres.
+Interfaces d’administration métier.
+Espaces particuliers :
+/business : configuration et documentation du projet (nettoyage démo, réinit DB, init données métier, Git, variables d’environnement, mise en production…).
+/business/admin : administration des rôles et permissions propres à l’application (indépendants des rôles plateforme).
+Philosophie (inchangée)
+Réutilisabilité · Modularité · Standardisation · Séparation des responsabilités · Sécurité · Automatisation · Évolutivité.
+Ultimate Base App n’est pas un simple starter kit Next.js. C’est une plateforme de développement applicatif réutilisable qui combine :
+un socle technique prêt à l’emploi ;
+un environnement de conception (Scrum) ;
+une boîte à outils de développement et de qualité (Genesis) ;
+un espace métier isolé du socle (Business App).
+
+
+Architecture complète des fichiers à développer
+ultimate-base-app/
+
+
+
+
+
+
+////
+layout affreu
+///////
+
+////
+Header  place 
+//////
+
+
+/////
+/dev/page
+///////
+
+
+/////
+les dossieret page de presentation ?
+////
+
+
+
+
+/////
+
+/////
