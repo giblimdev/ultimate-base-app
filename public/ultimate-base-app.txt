@@ -69,7 +69,9 @@ ultimate-base-app/
 generer les commande dans dev
 ////
 
-////avatar////
+////
+menu avec page et dev et business
+////
 
 
 ////
