@@ -9,11 +9,12 @@ script produit dans le projet (par un humain ou une IA).
 
 Un script (contenu d'un fichier) est constitué d'une **en-tête** (entre `/* */`) et de son **code** (TypeScript, TSX, etc.).
 
-### 1. Script en entier
+### 1. Script en entier 
 
 Toujours (sauf demande explicite de l'utilisateur) fournir
 **l'intégralité / complet / en entier** du script :
 en-tête `/* */` + code. Aucun placeholder (`// ...`, `// TODO`, `//`).
+** dans le code éhaper les paractères spéciaux
 
 ### 2. Intégration des scripts à l’architecture existante
 

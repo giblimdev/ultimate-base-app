@@ -42,7 +42,7 @@ CI/CD Manager
 Git Manager
 D. Business App : espace métier
 Tout ce qui est spécifique au produit final.
-Pages métier.
+Pages métier. 
 Composants spécifiques.
 Bibliothèques et fonctions métier.
 Modèles de données et services.
@@ -73,6 +73,8 @@ generer les commande dans dev
 menu avec page et dev et business
 ////
 
+////. env a faire 
+//////////
 
 ////
 layout affreu
@@ -96,5 +98,10 @@ les dossieret page de presentation ?
 
 
 /////
-
+composanr retour
 /////
+
+
+///
+le menue peuvennt etr e de s fky card
+////
