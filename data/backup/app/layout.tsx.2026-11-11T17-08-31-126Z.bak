@@ -1,0 +1,105 @@
+/*
+path :           app/layout.tsx
+tag :            ["layout-racine", "fonts", "providers", "socle", "shell", "navigation"]
+projectId:       <UltimateBaseApp>
+type:            layout
+generic:         false
+
+role:            Layout racine de l'application. Charge les polices Inter (UI)
+                 et JetBrains Mono (code), applique les variables CSS sur
+                 <html>, monte les providers globaux (TooltipProvider) et le
+                 Toaster Sonner. Monte également le shell applicatif :
+                 AppSidebar (desktop) + AppHeader (sticky, toutes les pages
+                 sauf /) autour du contenu. SuppressHydrationWarning requis
+                 pour next-themes.
+
+flow:            RootLayout({ children }) → <html> (lang fr, polices,
+                 suppressHydrationWarning) → <body> → TooltipProvider →
+                 <div flex> → AppSidebar → <div flex-1> → AppHeader →
+                 <main>{children}</main> → </div></div> → Toaster.
+
+ecosystem:       Socle = [
+                   "@/app/globals.css",
+                   "@/app/layout.tsx",
+                   "@/app/page.tsx",
+                   "@/components/layout/AppHeader.tsx",
+                   "@/components/layout/AppSidebar.tsx",
+                   "@/components/ui/tooltip.tsx",
+                 ]
+relatedFiles:    ["@/app/globals.css",
+                  "@/app/page.tsx",
+                  "@/components/layout/AppHeader.tsx",
+                  "@/components/layout/AppSidebar.tsx"]
+imports:         ["next", "next/font/google", "./globals.css",
+                  "@/components/layout/AppHeader",
+                  "@/components/layout/AppSidebar",
+                  "@/components/ui/tooltip", "sonner"]
+exports:         ["metadata", "default RootLayout"]
+useBy:           []
+
+userStories:     ["*en tant que développeur je veux un layout racine avec navigation persistante",
+                  "*en tant qu'utilisateur je veux accéder à tous les modules sans revenir à l'accueil"]
+status:          wip
+pathChecked:     ✔true
+metaDataChecked: ✘false
+scriptChecked:   ✘false
+*/
+import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
+import "./globals.css";
+import { AppHeader } from "@/components/layout/AppHeader";
+import { AppSidebar } from "@/components/layout/AppSidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "sonner";
+
+const inter = Inter({
+  variable: "--font-sans",
+  subsets: ["latin"],
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Ultimate Base App",
+  description: "Plateforme de développement applicatif réutilisable",
+};
+
+export default function RootLayout({ children }: LayoutProps<"/">) {
+  return (
+    <html
+      lang="fr"
+      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
+      <body className="flex min-h-full bg-background text-foreground">
+        <TooltipProvider>
+          <AppSidebar />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <AppHeader />
+            <main className="flex flex-1 flex-col">{children}</main>
+          </div>
+          <Toaster
+            position="bottom-right"
+            richColors
+            closeButton
+            expand
+            visibleToasts={4}
+            toastOptions={{
+              duration: 4000,
+              classNames: {
+                toast: "rounded-xl shadow-lg border",
+                title: "font-semibold",
+                description: "text-sm opacity-90",
+                actionButton: "font-medium",
+                cancelButton: "font-medium",
+              },
+            }}
+          />
+        </TooltipProvider>
+      </body>
+    </html>
+  );
+}

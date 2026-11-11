@@ -1,0 +1,829 @@
+/*
+path :           app/genesis/read-files/ReadFilesView.tsx
+tag :            ["genesis", "read-files", "view", "client", "tree", "viewer", "json", "exclusions", "ux", "responsive"]
+projectId:       <ultimate-genesis>
+type:            component
+generic:         false
+
+role:            Vue client de Read Files, refondue mobile-first. Sur mobile,
+                 une seule zone visible à la fois via une barre d'onglets
+                 sticky (Arbre / Fichier / Export). Sur desktop (lg:), grille
+                 [320px 1fr] avec arbre + viewer côte à côte et panneau Export
+                 en dessous. Modal d'exclusions responsive avec chemin du
+                 fichier persisté affiché. Conteneur avec marges cohérentes
+                 (px-3 sm:px-4 lg:px-6), hauteur adaptée (dvh).
+
+flow:            state root/tree/selected Set/currentFile/exclusions/exclusionsPath
+                 → useEffect sur root → listFilesAction + getExclusionsAction
+                 (stocke path) → filtre → clic → readFileAction → cocher →
+                 Exporter → exportSelectionAction → Copier → clipboard →
+                 Exclusions → add/remove/reset → refresh arbre.
+
+ecosystem:       Genesis = [
+                   "@/app/genesis/actions/createFile.ts",
+                   "@/app/genesis/actions/exclusions.ts",
+                   "@/app/genesis/actions/readFiles.ts",
+                   "@/app/genesis/components/FileTypeSelect.tsx",
+                   "@/app/genesis/components/RootFsPicker.tsx",
+                   "@/app/genesis/create-files/CreateFileForm.tsx",
+                   "@/app/genesis/create-files/page.tsx",
+                   "@/app/genesis/lib/exclusions.ts",
+                   "@/app/genesis/lib/fs-utils.ts",
+                   "@/app/genesis/lib/header-parser.ts",
+                   "@/app/genesis/lib/header-templates.ts",
+                   "@/app/genesis/lib/script-integrity.ts",
+                   "@/app/genesis/lib/tools.ts",
+                   "@/app/genesis/page.tsx",
+                   "@/app/genesis/read-files/ReadFilesView.tsx",
+                   "@/app/genesis/read-files/page.tsx",
+                 ]
+relatedFiles:    ["@/app/genesis/actions/readFiles.ts",
+                  "@/app/genesis/actions/exclusions.ts",
+                  "@/app/genesis/components/RootFsPicker.tsx"]
+imports:         ["react",
+                  "@/app/genesis/actions/readFiles",
+                  "@/app/genesis/actions/exclusions",
+                  "@/app/genesis/components/RootFsPicker",
+                  "@/app/genesis/lib/exclusions"]
+exports:         ["ReadFilesView"]
+useBy:           ["@/app/genesis/read-files/page.tsx"]
+
+userStories:     ["*en tant que développeur je veux sélectionner des fichiers et exporter un JSON",
+                  "*en tant que développeur je veux copier le JSON dans le presse-papier",
+                  "*en tant que développeur je veux sauvegarder le JSON dans data/app/",
+                  "*en tant que développeur je veux gérer les exclusions",
+                  "*en tant que développeur je veux une UI mobile-first utilisable sur téléphone"]
+status:          planned
+pathChecked:     ✘false
+metaDataChecked: ✘false
+scriptChecked:   ✘false
+*/
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  listFilesAction,
+  readFileAction,
+  exportSelectionAction,
+  type FileNode,
+  type ReadFileResult,
+  type ExportResult,
+} from "@/app/genesis/actions/readFiles";
+import {
+  getExclusionsAction,
+  addExclusionAction,
+  removeExclusionAction,
+  resetExclusionsAction,
+  type ExclusionKind,
+} from "@/app/genesis/actions/exclusions";
+import { RootFsPicker } from "@/app/genesis/components/RootFsPicker";
+import type { Exclusions } from "@/app/genesis/lib/exclusions";
+
+type Tab = "tree" | "file" | "export";
+
+export function ReadFilesView() {
+  const [root, setRoot] = useState("");
+  const [tree, setTree] = useState<FileNode[] | null>(null);
+  const [treeError, setTreeError] = useState<string | null>(null);
+  const [loadingTree, setLoadingTree] = useState(false);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [file, setFile] = useState<ReadFileResult | null>(null);
+  const [loadingFile, setLoadingFile] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [tab, setTab] = useState<Tab>("tree");
+
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [copiedFileContent, setCopiedFileContent] = useState(false);
+
+  const [exclusions, setExclusions] = useState<Exclusions>({ dirs: [], files: [] });
+  const [exclusionsPath, setExclusionsPath] = useState<string>("");
+  const [exclusionsOpen, setExclusionsOpen] = useState(false);
+  const [newDir, setNewDir] = useState("");
+  const [newFile, setNewFile] = useState("");
+  const [exclError, setExclError] = useState<string | null>(null);
+
+  const loadTree = useCallback(async () => {
+    setLoadingTree(true);
+    setTreeError(null);
+    const res = await listFilesAction(root || undefined);
+    if (res.ok) setTree(res.tree);
+    else {
+      setTreeError(res.error);
+      setTree(null);
+    }
+    setLoadingTree(false);
+  }, [root]);
+
+  const loadExclusions = useCallback(async () => {
+    const res = await getExclusionsAction(root || undefined);
+    if (res.ok) {
+      setExclusions(res.exclusions);
+      setExclusionsPath(res.path);
+    } else setExclError(res.error);
+  }, [root]);
+
+  useEffect(() => {
+    void loadTree();
+    void loadExclusions();
+    setSelectedPath(null);
+    setFile(null);
+    setChecked(new Set());
+    setExportResult(null);
+    setFilter("");
+  }, [loadTree, loadExclusions]);
+
+  async function onSelect(path: string) {
+    setSelectedPath(path);
+    setTab("file");
+    setLoadingFile(true);
+    const res = await readFileAction(root || undefined, path);
+    setFile(res);
+    setLoadingFile(false);
+  }
+
+  function toggleCheck(path: string) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  function toggleAllVisible(paths: string[]) {
+    setChecked((prev) => {
+      const allChecked = paths.every((p) => prev.has(p));
+      const next = new Set(prev);
+      if (allChecked) paths.forEach((p) => next.delete(p));
+      else paths.forEach((p) => next.add(p));
+      return next;
+    });
+  }
+
+  async function onExport() {
+    setExporting(true);
+    setExportResult(null);
+    setCopied(false);
+    const res = await exportSelectionAction({
+      root: root || undefined,
+      paths: Array.from(checked),
+    });
+    setExportResult(res);
+    setExporting(false);
+    setTab("export");
+  }
+
+  async function onCopyJson() {
+    if (!exportResult || !exportResult.ok) return;
+    await navigator.clipboard.writeText(exportResult.json);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function onCopyFileContent() {
+    if (!file || !file.ok) return;
+    await navigator.clipboard.writeText(file.content);
+    setCopiedFileContent(true);
+    setTimeout(() => setCopiedFileContent(false), 2000);
+  }
+
+  async function onAdd(kind: ExclusionKind) {
+    setExclError(null);
+    const pattern = kind === "dir" ? newDir : newFile;
+    const res = await addExclusionAction({
+      root: root || undefined,
+      kind,
+      pattern,
+    });
+    if (res.ok) {
+      setExclusions(res.exclusions);
+      setExclusionsPath(res.path);
+      if (kind === "dir") setNewDir("");
+      else setNewFile("");
+      void loadTree();
+    } else setExclError(res.error);
+  }
+
+  async function onRemove(kind: ExclusionKind, pattern: string) {
+    setExclError(null);
+    const res = await removeExclusionAction({
+      root: root || undefined,
+      kind,
+      pattern,
+    });
+    if (res.ok) {
+      setExclusions(res.exclusions);
+      setExclusionsPath(res.path);
+      void loadTree();
+    } else setExclError(res.error);
+  }
+
+  async function onReset() {
+    setExclError(null);
+    const res = await resetExclusionsAction(root || undefined);
+    if (res.ok) {
+      setExclusions(res.exclusions);
+      setExclusionsPath(res.path);
+      void loadTree();
+    } else setExclError(res.error);
+  }
+
+  const visibleFiles = useMemo(() => {
+    if (!tree) return [] as string[];
+    const out: string[] = [];
+    const needle = filter.trim().toLowerCase();
+    const walk = (nodes: FileNode[]) => {
+      for (const n of nodes) {
+        if (n.kind === "file") {
+          if (!needle || n.path.toLowerCase().includes(needle)) out.push(n.path);
+        } else {
+          walk(n.children);
+        }
+      }
+    };
+    walk(tree);
+    return out;
+  }, [tree, filter]);
+
+  const checkedCount = checked.size;
+  const totalExclusions = exclusions.dirs.length + exclusions.files.length;
+
+  return (
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4 lg:px-6 lg:py-6">
+      <RootFsPicker value={root} onChange={setRoot} />
+
+      <div className="sticky top-0 z-10 flex flex-col gap-2 rounded-xl border border-border bg-card/95 p-2 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-1 overflow-x-auto">
+          <TabButton active={tab === "tree"} onClick={() => setTab("tree")}>
+            Arbre
+          </TabButton>
+          <TabButton active={tab === "file"} onClick={() => setTab("file")}>
+            Fichier
+          </TabButton>
+          <TabButton active={tab === "export"} onClick={() => setTab("export")}>
+            Export ({checkedCount})
+          </TabButton>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setExclusionsOpen(true)}
+            className="min-h-9 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-accent/40 sm:flex-none"
+          >
+            Exclusions ({totalExclusions})
+          </button>
+          <button
+            type="button"
+            onClick={() => void loadTree()}
+            disabled={loadingTree}
+            className="min-h-9 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-accent/40 disabled:opacity-50 sm:flex-none"
+          >
+            {loadingTree ? "…" : "Rafraîchir"}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+        <aside
+          className={[
+            "flex flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card p-2 sm:p-3",
+            "h-[calc(100dvh-13rem)] lg:h-auto lg:max-h-[75vh]",
+            tab === "tree" ? "" : "hidden lg:flex",
+          ].join(" ")}
+        >
+          <div className="flex flex-col gap-2">
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filtrer les fichiers…"
+              className="min-h-9 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{visibleFiles.length} fichier(s)</span>
+              <button
+                type="button"
+                onClick={() => toggleAllVisible(visibleFiles)}
+                disabled={visibleFiles.length === 0}
+                className="min-h-8 rounded px-2 py-1 text-xs hover:bg-accent/40 disabled:opacity-40"
+              >
+                {visibleFiles.every((p) => checked.has(p)) ? "Tout décocher" : "Tout cocher"}
+              </button>
+            </div>
+          </div>
+
+          {treeError && (
+            <p className="text-xs text-red-600 dark:text-red-400">{treeError}</p>
+          )}
+          {loadingTree && !tree && <TreeSkeleton />}
+          {tree && tree.length === 0 && (
+            <p className="py-6 text-center text-xs text-muted-foreground">
+              Dossier vide.
+            </p>
+          )}
+          {tree && tree.length > 0 && (
+            <ul className="flex flex-1 flex-col gap-0.5 overflow-auto pr-1">
+              {tree.map((node) => (
+                <TreeNode
+                  key={node.path}
+                  node={node}
+                  selectedPath={selectedPath}
+                  checked={checked}
+                  filter={filter}
+                  onSelect={onSelect}
+                  onToggleCheck={toggleCheck}
+                />
+              ))}
+            </ul>
+          )}
+        </aside>
+
+        <section
+          className={[
+            "flex flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4",
+            "h-[calc(100dvh-13rem)] lg:h-auto lg:max-h-[75vh]",
+            tab === "file" ? "" : "hidden lg:flex",
+          ].join(" ")}
+        >
+          {!selectedPath && (
+            <EmptyView
+              title="Aucun fichier sélectionné"
+              description="Choisis un fichier dans l'arbre pour afficher son contenu."
+            />
+          )}
+          {selectedPath && loadingFile && <FileSkeleton />}
+          {selectedPath && file && !file.ok && (
+            <p className="rounded-lg border border-red-600/30 bg-red-600/10 p-2 text-xs text-red-700 dark:text-red-400">
+              {file.error}
+            </p>
+          )}
+          {selectedPath && file && file.ok && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+                <code className="break-all text-xs">{file.path}</code>
+                <div className="flex items-center gap-1">
+                  {file.header && file.header.ok && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-primary">
+                      {file.header.header.type}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void onCopyFileContent()}
+                    className="min-h-8 rounded-lg border border-border bg-background px-2.5 py-1 text-[11px] hover:bg-accent/40"
+                  >
+                    {copiedFileContent ? "Copié !" : "Copier"}
+                  </button>
+                </div>
+              </div>
+
+              {file.header && file.header.ok && (
+                <dl className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-background p-2 text-xs sm:grid-cols-2">
+                  <Meta label="path" value={file.header.header.path} mono breakAll />
+                  <Meta label="projectId" value={file.header.header.projectId} mono breakAll />
+                  <Meta label="type" value={file.header.header.type} mono />
+                  <Meta label="status" value={file.header.header.status} mono />
+                </dl>
+              )}
+              {file.header && !file.header.ok && (
+                <p className="rounded-lg border border-amber-600/30 bg-amber-600/10 p-2 text-xs text-amber-700 dark:text-amber-400">
+                  En-tête non conforme : {file.header.error}
+                </p>
+              )}
+
+              <pre className="flex-1 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed">
+                <code>{file.content}</code>
+              </pre>
+            </>
+          )}
+        </section>
+
+        <section
+          className={[
+            "flex flex-col gap-3 rounded-xl border border-border bg-card p-3 sm:p-4 lg:col-span-2",
+            tab === "export" ? "" : "hidden",
+          ].join(" ")}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold">Export JSON</h2>
+              <p className="text-xs text-muted-foreground">
+                {checkedCount} fichier(s) sélectionné(s).
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <button
+                type="button"
+                onClick={() => void onExport()}
+                disabled={exporting || checkedCount === 0}
+                className="min-h-9 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {exporting ? "Export…" : "Exporter JSON"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void onCopyJson()}
+                disabled={!exportResult || !exportResult.ok}
+                className="min-h-9 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-accent/40 disabled:opacity-50"
+              >
+                {copied ? "Copié !" : "Copier"}
+              </button>
+              {checkedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setChecked(new Set())}
+                  className="min-h-9 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-accent/40"
+                >
+                  Vider
+                </button>
+              )}
+            </div>
+          </div>
+
+          {exportResult && !exportResult.ok && (
+            <p className="rounded-lg border border-red-600/30 bg-red-600/10 p-2 text-xs text-red-700 dark:text-red-400">
+              {exportResult.error}
+            </p>
+          )}
+          {exportResult && exportResult.ok && (
+            <div className="rounded-lg border border-green-600/30 bg-green-600/10 p-2 text-xs text-green-700 dark:text-green-400">
+              JSON généré ({exportResult.fileCount} fichier(s)) — sauvegardé
+              dans <code className="break-all">{exportResult.savedPath}</code>
+            </div>
+          )}
+          {!exportResult && checkedCount === 0 && (
+            <EmptyView
+              title="Aucune sélection"
+              description="Coche des fichiers dans l'arbre pour préparer un export JSON."
+            />
+          )}
+        </section>
+      </div>
+
+      {exclusionsOpen && (
+        <ExclusionsModal
+          exclusions={exclusions}
+          exclusionsPath={exclusionsPath}
+          error={exclError}
+          newDir={newDir}
+          newFile={newFile}
+          onNewDirChange={setNewDir}
+          onNewFileChange={setNewFile}
+          onAdd={onAdd}
+          onRemove={onRemove}
+          onReset={onReset}
+          onClose={() => setExclusionsOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+type TabButtonProps = {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+};
+
+function TabButton({ active, onClick, children }: TabButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "min-h-9 shrink-0 rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:text-sm",
+        active
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:bg-accent/40",
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
+type MetaProps = {
+  label: string;
+  value: string;
+  mono?: boolean;
+  breakAll?: boolean;
+};
+
+function Meta({ label, value, mono, breakAll }: MetaProps) {
+  return (
+    <div>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd
+        className={[
+          mono ? "font-mono" : "",
+          breakAll ? "break-all" : "",
+        ].join(" ")}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+type EmptyViewProps = { title: string; description: string };
+
+function EmptyView({ title, description }: EmptyViewProps) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-1 px-4 py-10 text-center">
+      <p className="text-sm font-medium">{title}</p>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function TreeSkeleton() {
+  return (
+    <ul className="flex flex-col gap-1.5 px-1">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <li
+          key={i}
+          className="h-4 animate-pulse rounded bg-muted"
+          style={{ width: `${60 + ((i * 7) % 30)}%` }}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function FileSkeleton() {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: 10 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-3 animate-pulse rounded bg-muted"
+          style={{ width: `${50 + ((i * 11) % 45)}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+type TreeNodeProps = {
+  node: FileNode;
+  selectedPath: string | null;
+  checked: Set<string>;
+  filter: string;
+  onSelect: (path: string) => void;
+  onToggleCheck: (path: string) => void;
+};
+
+function TreeNode({
+  node,
+  selectedPath,
+  checked,
+  filter,
+  onSelect,
+  onToggleCheck,
+}: TreeNodeProps) {
+  const [open, setOpen] = useState(true);
+  const needle = filter.trim().toLowerCase();
+
+  if (node.kind === "dir") {
+    const visibleChildren = node.children.filter((c) =>
+      !needle ? true : nodeMatches(c, needle),
+    );
+    if (visibleChildren.length === 0) return null;
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-h-8 w-full items-center gap-1.5 rounded px-1 py-1 text-left text-xs hover:bg-accent/40 sm:min-h-9"
+        >
+          <span aria-hidden="true" className="text-muted-foreground">
+            {open ? "▾" : "▸"}
+          </span>
+          <span className="truncate font-mono">{node.name}/</span>
+        </button>
+        {open && (
+          <ul className="ml-3 flex flex-col gap-0.5 border-l border-border pl-2">
+            {visibleChildren.map((child) => (
+              <TreeNode
+                key={child.path}
+                node={child}
+                selectedPath={selectedPath}
+                checked={checked}
+                filter={filter}
+                onSelect={onSelect}
+                onToggleCheck={onToggleCheck}
+              />
+            ))}
+          </ul>
+        )}
+      </li>
+    );
+  }
+
+  if (needle && !node.path.toLowerCase().includes(needle)) return null;
+
+  const active = selectedPath === node.path;
+  const isChecked = checked.has(node.path);
+  return (
+    <li
+      className={[
+        "flex min-h-8 items-center gap-1.5 rounded px-1 py-1 sm:min-h-9",
+        active ? "bg-accent/60" : "hover:bg-accent/40",
+      ].join(" ")}
+    >
+      <input
+        type="checkbox"
+        checked={isChecked}
+        onChange={() => onToggleCheck(node.path)}
+        aria-label={`Sélectionner ${node.path}`}
+        className="size-4 shrink-0"
+      />
+      <button
+        type="button"
+        onClick={() => onSelect(node.path)}
+        aria-current={active ? "true" : undefined}
+        className="flex-1 truncate text-left font-mono text-xs"
+        title={node.path}
+      >
+        {node.name}
+      </button>
+    </li>
+  );
+}
+
+function nodeMatches(node: FileNode, needle: string): boolean {
+  if (node.kind === "file") return node.path.toLowerCase().includes(needle);
+  return node.children.some((c) => nodeMatches(c, needle));
+}
+
+type ExclusionsModalProps = {
+  exclusions: Exclusions;
+  exclusionsPath: string;
+  error: string | null;
+  newDir: string;
+  newFile: string;
+  onNewDirChange: (v: string) => void;
+  onNewFileChange: (v: string) => void;
+  onAdd: (kind: ExclusionKind) => void;
+  onRemove: (kind: ExclusionKind, pattern: string) => void;
+  onReset: () => void;
+  onClose: () => void;
+};
+
+function ExclusionsModal({
+  exclusions,
+  exclusionsPath,
+  error,
+  newDir,
+  newFile,
+  onNewDirChange,
+  onNewFileChange,
+  onAdd,
+  onRemove,
+  onReset,
+  onClose,
+}: ExclusionsModalProps) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Gérer les exclusions"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[90dvh] w-full max-w-lg flex-col gap-3 overflow-auto rounded-t-2xl border border-border bg-card p-4 sm:rounded-xl sm:p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Exclusions</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-8 rounded-lg border border-border bg-background px-2.5 py-1 text-xs hover:bg-accent/40"
+          >
+            Fermer
+          </button>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Les dossiers et fichiers listés ici ne sont ni affichés ni lisibles
+          par Read Files.
+        </p>
+
+        {error && (
+          <p className="rounded-lg border border-red-600/30 bg-red-600/10 p-2 text-xs text-red-700 dark:text-red-400">
+            {error}
+          </p>
+        )}
+
+        <ExclusionList
+          title="Dossiers exclus"
+          items={exclusions.dirs}
+          kind="dir"
+          value={newDir}
+          onValueChange={onNewDirChange}
+          placeholder="ex : data"
+          onAdd={onAdd}
+          onRemove={onRemove}
+        />
+
+        <ExclusionList
+          title="Fichiers exclus"
+          items={exclusions.files}
+          kind="file"
+          value={newFile}
+          onValueChange={onNewFileChange}
+          placeholder="ex : *.test.ts"
+          onAdd={onAdd}
+          onRemove={onRemove}
+        />
+
+        <button
+          type="button"
+          onClick={onReset}
+          className="mt-1 self-start rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium hover:bg-accent/40"
+        >
+          Réinitialiser aux valeurs par défaut
+        </button>
+
+        <p className="mt-2 break-all rounded-lg border border-border bg-background p-2 text-[11px] text-muted-foreground">
+          Fichier persisté :{" "}
+          <code className="font-mono">{exclusionsPath || "(chemin inconnu)"}</code>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+type ExclusionListProps = {
+  title: string;
+  items: string[];
+  kind: ExclusionKind;
+  value: string;
+  onValueChange: (v: string) => void;
+  placeholder: string;
+  onAdd: (kind: ExclusionKind) => void;
+  onRemove: (kind: ExclusionKind, pattern: string) => void;
+};
+
+function ExclusionList({
+  title,
+  items,
+  kind,
+  value,
+  onValueChange,
+  placeholder,
+  onAdd,
+  onRemove,
+}: ExclusionListProps) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </p>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Aucun.</p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {items.map((item) => (
+            <li
+              key={item}
+              className="flex min-h-9 items-center justify-between gap-2 rounded-lg border border-border bg-background px-2 py-1.5 text-xs font-mono"
+            >
+              <span className="truncate">{item}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(kind, item)}
+                aria-label={`Supprimer ${item}`}
+                className="min-h-7 min-w-7 shrink-0 rounded px-1 text-red-600 hover:bg-red-600/10"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          placeholder={placeholder}
+          className="min-h-9 w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <button
+          type="button"
+          onClick={() => onAdd(kind)}
+          className="min-h-9 min-w-9 shrink-0 rounded-lg border border-border bg-background px-2 text-sm hover:bg-accent/40"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}

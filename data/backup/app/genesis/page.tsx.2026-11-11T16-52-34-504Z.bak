@@ -1,0 +1,172 @@
+/*
+path :           app/genesis/page.tsx
+tag :            ["genesis", "hub", "tools", "presentation", "page"]
+projectId:       <ultimate-genesis>
+type:            page
+generic:         false
+
+role:            Page hub de présentation des outils Genesis. Liste les
+                 outils de développement et de contrôle qualité sous forme de
+                 cartes cliquables. Les outils "planned" sont rendus comme
+                 des cartes désactivées (pas de lien, badge "bientôt") pour
+                 éviter les 404. Point d'entrée de la couche C (Genesis).
+
+flow:            Server Component → lit GENESIS_TOOLS → rend un header de
+                 section → grille responsive de cartes → si status "ready" :
+                 <Link> cliquable ; si "planned" : <div> désactivé avec badge.
+
+ecosystem:       Genesis = [
+                   "@/app/genesis/actions/createFile.ts",
+                   "@/app/genesis/actions/exclusions.ts",
+                   "@/app/genesis/actions/readFiles.ts",
+                   "@/app/genesis/components/FileTypeSelect.tsx",
+                   "@/app/genesis/components/RootFsPicker.tsx",
+                   "@/app/genesis/create-files/CreateFileForm.tsx",
+                   "@/app/genesis/create-files/page.tsx",
+                   "@/app/genesis/lib/exclusions.ts",
+                   "@/app/genesis/lib/fs-utils.ts",
+                   "@/app/genesis/lib/header-parser.ts",
+                   "@/app/genesis/lib/header-templates.ts",
+                   "@/app/genesis/lib/script-integrity.ts",
+                   "@/app/genesis/lib/tools.ts",
+                   "@/app/genesis/page.tsx",
+                   "@/app/genesis/read-files/ReadFilesView.tsx",
+                   "@/app/genesis/read-files/page.tsx",
+                 ]
+relatedFiles:    ["@/app/genesis/lib/tools.ts",
+                  "@/data/nav.ts",
+                  "@/components/ui/BackButton.tsx"]
+imports:         ["next/link",
+                  "@/app/genesis/lib/tools",
+                  "@/components/ui/BackButton",
+                  "@/components/ui/badge",
+                  "@/lib/utils"]
+exports:         ["default (GenesisPage)"]
+useBy:           []
+
+userStories:     ["*en tant que développeur je veux voir tous les outils Genesis et accéder à chacun",
+                  "*en tant qu'utilisateur je veux distinguer les outils disponibles des outils à venir"]
+status:          wip
+pathChecked:     ✘false
+metaDataChecked: ✘false
+scriptChecked:   ✘false
+*/
+import Link from "next/link";
+import { BackButton } from "@/components/ui/BackButton";
+import { GENESIS_TOOLS, type GenesisTool } from "@/app/genesis/lib/tools";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+export default function GenesisPage() {
+  return (
+    <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+      <div>
+        <BackButton href="/" label="Retour à l'accueil" />
+      </div>
+
+      <header className="flex flex-col gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Genesis
+        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          Outils de développement
+        </h1>
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+          Assistance au développement et contrôle qualité. Chaque outil vérifie,
+          organise ou outille le projet — sans jamais générer de code métier à
+          ta place.
+        </p>
+      </header>
+
+      <ul
+        role="list"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      >
+        {GENESIS_TOOLS.map((tool) => (
+          <li key={tool.href}>
+            <GenesisToolCard tool={tool} />
+          </li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+
+type GenesisToolCardProps = {
+  tool: GenesisTool;
+};
+
+function GenesisToolCard({ tool }: GenesisToolCardProps) {
+  const Icon = tool.icon;
+  const isReady = tool.status === "ready";
+
+  const inner = (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <span
+          className={cn(
+            "flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary",
+            !isReady && "bg-muted text-muted-foreground",
+          )}
+          aria-hidden="true"
+        >
+          <Icon className="size-5" />
+        </span>
+        <div className="flex items-center gap-1.5">
+          {!isReady && (
+            <Badge
+              variant="outline"
+              className="h-5 px-1.5 text-[10px] uppercase tracking-wide"
+            >
+              Bientôt
+            </Badge>
+          )}
+          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {tool.category}
+          </span>
+        </div>
+      </div>
+
+      <h2 className="mt-3 text-base font-semibold sm:text-lg">{tool.title}</h2>
+      <p className="mt-1 flex-1 text-sm leading-6 text-muted-foreground">
+        {tool.description}
+      </p>
+
+      <span
+        className={cn(
+          "mt-3 inline-flex items-center gap-1 text-sm font-medium",
+          isReady ? "text-primary" : "text-muted-foreground",
+        )}
+      >
+        {isReady ? "Ouvrir" : "À venir"}
+        <span aria-hidden="true">→</span>
+      </span>
+    </>
+  );
+
+  const baseClass =
+    "group flex h-full flex-col rounded-xl border border-border bg-card p-4 transition-colors sm:p-5";
+
+  if (!isReady) {
+    return (
+      <div
+        aria-disabled="true"
+        className={cn(baseClass, "cursor-not-allowed opacity-60")}
+      >
+        {inner}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      href={tool.href}
+      className={cn(
+        baseClass,
+        "hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      )}
+    >
+      {inner}
+    </Link>
+  );
+}

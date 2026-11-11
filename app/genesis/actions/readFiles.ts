@@ -6,19 +6,19 @@ type:            action
 generic:         false
 
 role:            Server Actions de lecture pour Read Files. listFilesAction
-                 retourne l'arborescence FILTRÉE par les exclusions (dossiers et
-                 fichiers exclus absents). readFileAction lit un fichier et
+                 retourne l'arborescence FILTRÉE par les exclusions (dossiers
+                 et fichiers exclus absents). readFileAction lit un fichier et
                  refuse tout chemin exclu. exportSelectionAction construit un
-                 JSON des fichiers sélectionnés (contenu + en-tête parsé) et le
-                 sauvegarde dans data/app/read-files-<timestamp>.json ; le
-                 contenu du JSON est aussi retourné au client pour copie.
+                 JSON des fichiers sélectionnés, l'écrit dans
+                 data/app/read-files-<timestamp>.json, et retourne le contenu
+                 JSON + le chemin RELATIF + le chemin ABSOLU + le nombre de
+                 fichiers.
 
-flow:            listFilesAction → loadExclusions → walk avec isExcluded →
-                 arbre filtré.
+flow:            listFilesAction → loadExclusions → walk avec isExcluded.
                  readFileAction → isExcluded → refus → sinon lecture.
-                 exportSelectionAction → pour chaque path sélectionné →
-                 refus si exclu → lecture → parse header → assemblage →
-                 écriture data/app/read-files-<ts>.json → retour { json, savedPath }.
+                 exportSelectionAction → pour chaque path → refus si exclu →
+                 lecture → parse header → assemblage → écriture JSON →
+                 retour { json, savedPath, savedAbsolutePath, fileCount }.
 
 ecosystem:       Genesis = [
                    "@/app/genesis/actions/createFile.ts",
@@ -32,6 +32,7 @@ ecosystem:       Genesis = [
                    "@/app/genesis/lib/fs-utils.ts",
                    "@/app/genesis/lib/header-parser.ts",
                    "@/app/genesis/lib/header-templates.ts",
+                   "@/app/genesis/lib/script-integrity.ts",
                    "@/app/genesis/lib/tools.ts",
                    "@/app/genesis/page.tsx",
                    "@/app/genesis/read-files/ReadFilesView.tsx",
@@ -51,6 +52,7 @@ useBy:           ["@/app/genesis/read-files/ReadFilesView.tsx"]
 userStories:     ["*en tant que développeur je veux parcourir les fichiers du projet",
                   "*en tant que développeur je veux lire le contenu d'un fichier et son en-tête",
                   "*en tant que développeur je veux exporter une sélection en JSON",
+                  "*en tant que développeur je veux voir le chemin absolu du fichier sauvegardé",
                   "*en tant que développeur je veux que les fichiers exclus ne soient pas exposés"]
 status:          planned
 pathChecked:     ✘false
@@ -61,8 +63,11 @@ scriptChecked:   ✘false
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { assertInsideRoot, resolveRoot } from "@/app/genesis/lib/fs-utils";
-import { loadExclusions, isExcluded } from "@/app/genesis/lib/exclusions";
+import {
+  assertInsideRoot,
+  resolveRoot,
+} from "@/app/genesis/lib/fs-utils";
+import { isExcluded, loadExclusions } from "@/app/genesis/lib/exclusions";
 import { parseGenesisHeader } from "@/app/genesis/lib/header-parser";
 
 const TEXT_EXTENSIONS = new Set([
@@ -90,14 +95,22 @@ export type ReadFileResult =
   | { ok: false; error: string };
 
 export type ExportResult =
-  | { ok: true; json: string; savedPath: string; fileCount: number }
+  | {
+      ok: true;
+      json: string;
+      savedPath: string;
+      savedAbsolutePath: string;
+      fileCount: number;
+    }
   | { ok: false; error: string };
+
+type LoadedExclusions = Awaited<ReturnType<typeof loadExclusions>>["exclusions"];
 
 async function walk(
   absRoot: string,
   absDir: string,
   depth: number,
-  excl: Awaited<ReturnType<typeof loadExclusions>>,
+  excl: LoadedExclusions,
 ): Promise<FileNode[]> {
   const entries = await fs.readdir(absDir, { withFileTypes: true });
   const nodes: FileNode[] = [];
@@ -136,7 +149,7 @@ export async function listFilesAction(
 ): Promise<ListFilesResult> {
   try {
     const absRoot = resolveRoot(root);
-    const excl = await loadExclusions(absRoot);
+    const { exclusions: excl } = await loadExclusions(root);
     const absSub = subPath ? assertInsideRoot(absRoot, subPath) : absRoot;
     const tree = await walk(absRoot, absSub, 0, excl);
     return { ok: true, tree };
@@ -157,7 +170,7 @@ export async function readFileAction(
       return { ok: false, error: "Chemin de fichier manquant." };
     }
     const absRoot = resolveRoot(root);
-    const excl = await loadExclusions(absRoot);
+    const { exclusions: excl } = await loadExclusions(root);
     if (isExcluded(filePath, excl)) {
       return { ok: false, error: "Fichier exclu par la configuration." };
     }
@@ -186,7 +199,7 @@ export async function exportSelectionAction(input: {
     }
 
     const absRoot = resolveRoot(input.root);
-    const excl = await loadExclusions(absRoot);
+    const { exclusions: excl } = await loadExclusions(input.root);
 
     const files: Array<{
       path: string;
@@ -231,6 +244,7 @@ export async function exportSelectionAction(input: {
       ok: true,
       json,
       savedPath: savedRel,
+      savedAbsolutePath: savedAbs,
       fileCount: files.length,
     };
   } catch (err) {

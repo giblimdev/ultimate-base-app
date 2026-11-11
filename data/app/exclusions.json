@@ -1,0 +1,22 @@
+{
+  "dirs": [
+    "node_modules",
+    ".git",
+    ".next",
+    "dist",
+    "build",
+    ".turbo",
+    "data/app",
+    ".agents"
+  ],
+  "files": [
+    ".env",
+    ".env.local",
+    ".env.production",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    ".claude",
+    ".windsurf"
+  ]
+}

@@ -1,0 +1,382 @@
+/*
+path :           app/genesis/create-files/CreateFileForm.tsx
+tag :            ["genesis", "create-files", "form", "client", "action", "ux", "multi", "integrity"]
+projectId:       <ultimate-genesis>
+type:            component
+generic:         false
+
+role:            Formulaire client de Create Files, multi-fichiers avec zones
+                 automatiques et VÉRIFICATION D'INTÉGRITÉ. Une nouvelle zone
+                 vide n'apparaît que si la dernière zone est complète
+                 (checkScriptIntegrity) ou forcée par l'utilisateur (checkbox
+                 par zone). Chaque zone affiche soit "complet" soit un
+                 avertissement listant les raisons. Le bouton Créer reste
+                 désactivé tant qu'une zone remplie est incomplète et non
+                 forcée. Aucune case overwrite : backup automatique.
+
+flow:            state scripts/forced → onChange d'une zone → vérification
+                 checkScriptIntegrity → si complète ou forcée, ajoute une zone
+                 vide → aperçu parseGenesisHeader par zone → bouton Créer
+                 actif si toutes les zones remplies sont valides ET (complètes
+                 OU forcées) → createFilesAction → feedback.
+
+ecosystem:       Genesis = [
+                   "@/app/genesis/actions/createFile.ts",
+                   "@/app/genesis/actions/exclusions.ts",
+                   "@/app/genesis/actions/readFiles.ts",
+                   "@/app/genesis/components/FileTypeSelect.tsx",
+                   "@/app/genesis/components/RootFsPicker.tsx",
+                   "@/app/genesis/create-files/CreateFileForm.tsx",
+                   "@/app/genesis/create-files/page.tsx",
+                   "@/app/genesis/lib/exclusions.ts",
+                   "@/app/genesis/lib/fs-utils.ts",
+                   "@/app/genesis/lib/header-parser.ts",
+                   "@/app/genesis/lib/header-templates.ts",
+                   "@/app/genesis/lib/script-integrity.ts",
+                   "@/app/genesis/lib/tools.ts",
+                   "@/app/genesis/page.tsx",
+                   "@/app/genesis/read-files/ReadFilesView.tsx",
+                   "@/app/genesis/read-files/page.tsx",
+                 ]
+relatedFiles:    ["@/app/genesis/actions/createFile.ts",
+                  "@/app/genesis/components/RootFsPicker.tsx",
+                  "@/app/genesis/lib/header-parser.ts",
+                  "@/app/genesis/lib/script-integrity.ts"]
+imports:         ["react",
+                  "@/app/genesis/actions/createFile",
+                  "@/app/genesis/components/RootFsPicker",
+                  "@/app/genesis/lib/header-parser",
+                  "@/app/genesis/lib/script-integrity"]
+exports:         ["CreateFileForm"]
+useBy:           ["@/app/genesis/create-files/page.tsx"]
+
+userStories:     ["*en tant que développeur je veux coller plusieurs scripts et les créer en une fois",
+                  "*en tant que développeur je veux qu'une nouvelle zone apparaisse seulement si le script est complet",
+                  "*en tant que développeur je veux forcer l'ajout d'une zone malgré un avertissement",
+                  "*en tant que développeur je veux que tout fichier écrasé soit sauvegardé automatiquement"]
+status:          planned
+pathChecked:     ✘false
+metaDataChecked: ✘false
+scriptChecked:   ✘false
+*/
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  createFilesAction,
+  type CreateFilesResult,
+} from "@/app/genesis/actions/createFile";
+import { RootFsPicker } from "@/app/genesis/components/RootFsPicker";
+import { parseGenesisHeader } from "@/app/genesis/lib/header-parser";
+import { checkScriptIntegrity } from "@/app/genesis/lib/script-integrity";
+
+export function CreateFileForm() {
+  const [scripts, setScripts] = useState<string[]>([""]);
+  const [forced, setForced] = useState<Set<number>>(new Set());
+  const [root, setRoot] = useState("");
+  const [result, setResult] = useState<CreateFilesResult | null>(null);
+  const [pending, setPending] = useState(false);
+
+  const blockStates = useMemo(
+    () =>
+      scripts.map((s) => {
+        if (!s.trim()) {
+          return {
+            empty: true,
+            header: null,
+            integrity: null,
+          } as const;
+        }
+        return {
+          empty: false,
+          header: parseGenesisHeader(s),
+          integrity: checkScriptIntegrity(s),
+        } as const;
+      }),
+    [scripts],
+  );
+
+  const filledIndices = scripts
+    .map((s, i) => (s.trim() ? i : -1))
+    .filter((i) => i >= 0);
+
+  const filledValid = filledIndices.every((i) => {
+    const b = blockStates[i];
+    if (!b || b.empty) return false;
+    if (!b.header || !b.header.ok) return false;
+    if (!b.integrity || !b.integrity.ok) {
+      return forced.has(i);
+    }
+    return true;
+  });
+
+  const canSubmit = filledIndices.length > 0 && filledValid && !pending;
+
+  function updateScript(index: number, value: string) {
+    setScripts((prev) => {
+      const next = prev.map((s, i) => (i === index ? value : s));
+      const isLast = index === next.length - 1;
+      const trimmed = value.trim();
+      if (!isLast || !trimmed) return next;
+
+      const header = parseGenesisHeader(value);
+      const integrity = checkScriptIntegrity(value);
+      const acceptable = header.ok && (integrity.ok || forced.has(index));
+      if (acceptable) next.push("");
+      return next;
+    });
+  }
+
+  function toggleForced(index: number) {
+    setForced((prev) => {
+      const next = new Set(prev);
+      const value = scripts[index] ?? "";
+      const header = parseGenesisHeader(value);
+      const integrity = checkScriptIntegrity(value);
+      const acceptable = header.ok && integrity.ok;
+      if (acceptable) return next;
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      if (next.has(index)) {
+        setScripts((prevScripts) => {
+          const last = prevScripts[prevScripts.length - 1];
+          if (last.trim() && prevScripts.length === index + 1) {
+            return [...prevScripts, ""];
+          }
+          return prevScripts;
+        });
+      }
+      return next;
+    });
+  }
+
+  function removeScript(index: number) {
+    setScripts((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      return next.length > 0 ? next : [""];
+    });
+    setForced((prev) => {
+      const next = new Set<number>();
+      prev.forEach((i) => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      });
+      return next;
+    });
+  }
+
+  function resetForm() {
+    setScripts([""]);
+    setForced(new Set());
+    setRoot("");
+    setResult(null);
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setPending(true);
+    setResult(null);
+    const filled = scripts.filter((s) => s.trim().length > 0);
+    const res = await createFilesAction({ scripts: filled, root });
+    setResult(res);
+    setPending(false);
+  }
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="flex flex-col gap-6 rounded-xl border border-border bg-card p-4 sm:p-6"
+    >
+      <section className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            1. Dossier racine
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Où écrire les fichiers. Le chemin exact de chaque fichier est lu
+            dans son en-tête.
+          </p>
+        </div>
+        <RootFsPicker value={root} onChange={setRoot} />
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            2. Scripts ({filledIndices.length})
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Colle un script complet par zone. Une nouvelle zone apparaît
+            automatiquement dès que la dernière est complète. Un script tronqué
+            n&apos;ajoute pas de zone : coche « Forcer » pour passer outre.
+          </p>
+        </div>
+
+        <ul className="flex flex-col gap-4">
+          {scripts.map((value, index) => {
+            const block = blockStates[index];
+            const isLastEmpty =
+              index === scripts.length - 1 && value.trim() === "";
+            const headerOk = block && !block.empty && block.header?.ok === true;
+            const integrityOk =
+              block && !block.empty && block.integrity?.ok === true;
+            const isForced = forced.has(index);
+
+            return (
+              <li
+                key={index}
+                className="flex flex-col gap-2 rounded-lg border border-border bg-background p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Script #{index + 1}
+                    {isLastEmpty && " (nouveau)"}
+                  </span>
+                  {!isLastEmpty && (
+                    <button
+                      type="button"
+                      onClick={() => removeScript(index)}
+                      disabled={pending}
+                      className="rounded-lg border border-border bg-card px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-600/10 disabled:opacity-40"
+                    >
+                      Supprimer
+                    </button>
+                  )}
+                </div>
+
+                <textarea
+                  value={value}
+                  onChange={(e) => updateScript(index, e.target.value)}
+                  rows={isLastEmpty ? 6 : 12}
+                  spellCheck={false}
+                  placeholder={`/*\npath :           app/exemple/page.tsx\nprojectId:       <ultimate-genesis>\ntype:            page\n...\n*/\nexport default function Page() {\n  return <main />;\n}`}
+                  className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
+                />
+
+                {!block || block.empty ? null : (
+                  <div className="flex flex-col gap-2">
+                    {headerOk && integrityOk && (
+                      <div className="rounded-lg border border-green-600/30 bg-green-600/10 px-2 py-1.5 text-xs text-green-700 dark:text-green-400">
+                        <span className="flex flex-wrap items-center gap-2 font-mono">
+                          <span>✓ Complet</span>
+                          <span className="break-all">
+                            {block.header!.header.path}
+                          </span>
+                          <span className="rounded bg-muted px-1.5 py-0.5">
+                            {block.header!.header.type}
+                          </span>
+                        </span>
+                      </div>
+                    )}
+
+                    {headerOk && !integrityOk && (
+                      <div className="rounded-lg border border-amber-600/30 bg-amber-600/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+                        <p className="font-semibold">
+                          ⚠ Script possiblement tronqué
+                        </p>
+                        <ul className="mt-1 list-disc pl-4">
+                          {block.integrity!.reasons.map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                        <label className="mt-2 flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isForced}
+                            onChange={() => toggleForced(index)}
+                          />
+                          Forcer l&apos;ajout / la création malgré
+                          l&apos;avertissement
+                        </label>
+                      </div>
+                    )}
+
+                    {!headerOk && (
+                      <div className="rounded-lg border border-red-600/30 bg-red-600/10 px-2 py-1.5 text-xs text-red-700 dark:text-red-400">
+                        {block.header && !block.header.ok
+                          ? block.header.error
+                          : "En-tête invalide."}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {pending
+            ? "Création…"
+            : `Créer ${filledIndices.length} fichier${filledIndices.length > 1 ? "s" : ""}`}
+        </button>
+        <button
+          type="button"
+          onClick={resetForm}
+          disabled={pending}
+          className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent/40 disabled:opacity-50"
+        >
+          Réinitialiser
+        </button>
+      </div>
+
+      {result && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={
+            result.ok
+              ? "rounded-lg border border-green-600/30 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-400"
+              : "rounded-lg border border-red-600/30 bg-red-600/10 p-3 text-sm text-red-700 dark:text-red-400"
+          }
+        >
+          {result.ok ? (
+            <div className="flex flex-col gap-3">
+              <p>
+                <strong>{result.files.length} fichier(s) créé(s).</strong>
+              </p>
+              <ul className="flex flex-col gap-2">
+                {result.files.map((f) => (
+                  <li
+                    key={f.path}
+                    className="rounded border border-border bg-card px-2 py-1.5 font-mono text-xs"
+                  >
+                    <div className="break-all">
+                      <span className="rounded bg-muted px-1.5 py-0.5">
+                        {f.type}
+                      </span>{" "}
+                      {f.path}
+                    </div>
+                    {f.backup && (
+                      <div className="mt-1 break-all text-muted-foreground">
+                        backup : {f.backup}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                onClick={resetForm}
+                className="self-start rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-accent/40"
+              >
+                Créer d&apos;autres fichiers
+              </button>
+            </div>
+          ) : (
+            <p>
+              <strong>Erreur :</strong> {result.error}
+            </p>
+          )}
+        </div>
+      )}
+    </form>
+  );
+}
