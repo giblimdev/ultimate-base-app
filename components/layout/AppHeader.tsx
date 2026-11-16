@@ -1,47 +1,50 @@
 /*
 path :           components/layout/AppHeader.tsx
 tag :            ["layout", "navigation", "header", "breadcrumb", "client",
-                  "rbac"]
-projectId:       <UltimateBaseApp>
-type:            component
-generic:         true
+                  "rbac", "user-menu"]
+projectId :      <UltimateBaseApp>
+type :           component
+generic :        true
 
-role:            Header global persistant affiché en haut de toutes les pages
-                 via app/layout.tsx. Contient le déclencheur mobile de la
-                 sidebar (qui reçoit platformRole pour filtrer), un fil
-                 d'Ariane contextuel déduit du pathname, et un lien vers
-                 /dev. Masqué sur / (la page d'accueil a son propre hero).
-                 Composant client justifié par usePathname.
+role :           Header global persistant affiché en haut de toutes les pages
+                 authentifiées via app/(app)/layout.tsx. Contient le
+                 déclencheur mobile de la sidebar, un fil d'Ariane contextuel
+                 déduit du pathname, un lien vers /dev, et le UserMenu
+                 (avatar + menu profil/thème/langue/déconnexion si connecté,
+                 boutons login/register sinon). Masqué sur / (la landing a
+                 son propre hero).
 
-flow:            AppHeader({ platformRole }) → usePathname → si "/" → null
-                 → sinon getNavItemByPath → MobileNavTrigger (avec
-                 platformRole) + breadcrumb + lien /dev.
+flow :           AppHeader({ platformRole }) → usePathname → si "/" → null
+                 → sinon getNavItemByPath → MobileNavTrigger + breadcrumb +
+                 lien /dev + <UserMenu />.
 
-ecosystem:       Navigation = [
+ecosystem :      Navigation = [
                    "@/components/layout/AppHeader.tsx",
                    "@/components/layout/AppSidebar.tsx",
+                   "@/components/layout/UserMenu.tsx",
                    "@/data/nav.ts",
-                   "@/modules/rbac/platform-role.ts",
                  ]
-relatedFiles:    ["@/data/nav.ts",
+relatedFiles :   ["@/data/nav.ts",
                   "@/components/layout/AppSidebar.tsx",
-                  "@/app/layout.tsx",
+                  "@/components/layout/UserMenu.tsx",
                   "@/modules/rbac/platform-role.ts"]
-imports:         ["next/link", "next/navigation", "lucide-react",
+imports :        ["next/link", "next/navigation", "lucide-react",
                   "@/data/nav", "@/lib/utils",
                   "@/modules/rbac/platform-role",
                   "@/components/layout/AppSidebar",
+                  "@/components/layout/UserMenu",
                   "@/components/ui/breadcrumb",
                   "@/components/ui/button"]
-exports:         ["AppHeader"]
-useBy:           ["@/app/layout.tsx"]
+exports :        ["AppHeader"]
+useBy :          ["@/app/(app)/layout.tsx"]
 
-userStories:     ["*en tant qu'utilisateur je veux toujours savoir où je suis dans l'application",
-                  "*en tant qu'utilisateur mobile je veux accéder à la navigation depuis le header"]
-status:          wip
-pathChecked:     ✘false
-metaDataChecked: ✘false
-scriptChecked:   ✘false
+userStories :    ["*en tant qu'utilisateur je veux toujours savoir où je suis dans l'application",
+                  "*en tant qu'utilisateur mobile je veux accéder à la navigation depuis le header",
+                  "*en tant qu'utilisateur je veux accéder à mon profil et me déconnecter depuis le header"]
+status :         wip
+pathChecked :    ✔true
+metaDataChecked : ✔true
+scriptChecked :  ✔true
 */
 "use client";
 
@@ -52,6 +55,7 @@ import { getNavItemByPath } from "@/data/nav";
 import type { PlatformRole } from "@/modules/rbac/platform-role";
 import { cn } from "@/lib/utils";
 import { MobileNavTrigger } from "@/components/layout/AppSidebar";
+import { UserMenu } from "@/components/layout/UserMenu";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -115,12 +119,14 @@ export function AppHeader({ platformRole }: AppHeaderProps) {
         aria-label="Référence développeur"
         className={cn(
           buttonVariants({ variant: "ghost", size: "sm" }),
-          "gap-1.5",
+          "hidden gap-1.5 sm:inline-flex",
         )}
       >
         <Terminal className="size-4" aria-hidden="true" />
-        <span className="hidden sm:inline">Référence</span>
+        <span className="hidden md:inline">Référence</span>
       </Link>
+
+      <UserMenu />
     </header>
   );
 }

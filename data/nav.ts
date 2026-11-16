@@ -1,6 +1,7 @@
 /*
 path :           data/nav.ts
-tag :            ["nav", "config", "navigation", "source-of-truth", "rbac", "history"]
+tag :            ["nav", "config", "navigation", "source-of-truth", "rbac",
+                  "history", "schema"]
 projectId:       <UltimateBaseApp>
 type:            config
 generic:         true
@@ -16,7 +17,10 @@ role:            Source de vérité unique de la navigation globale de
                  layout.tsx quand Better Auth sera installé. Genesis
                  expose Create Files, Read Files et History en "ready"
                  (les autres outils restent "planned" jusqu'à
-                 implémentation).
+                 implémentation). Dev expose la référence commandes et
+                 le schéma Prisma (page /dev/schema). L'icône Database
+                 (lucide-react) est importée pour la sous-entrée
+                 "Schéma Prisma".
 
 flow:            NAV_MODULES (const) → filtré par filterNavForRole(role)
                  dans AppSidebar → rendu. getNavItemByPath(pathname) →
@@ -40,16 +44,18 @@ useBy:           ["@/components/layout/AppSidebar.tsx",
 userStories:     ["*en tant que développeur je veux une navigation centralisée et cohérente",
                   "*en tant qu'utilisateur je veux accéder à tous les modules depuis n'importe quelle page",
                   "*en tant qu'utilisateur je ne veux pas voir les modules auxquels je n'ai pas accès",
-                  "*en tant qu'utilisateur je veux accéder à l'historique des fichiers depuis la navigation"]
+                  "*en tant qu'utilisateur je veux accéder à l'historique des fichiers depuis la navigation",
+                  "*en tant que développeur je veux accéder au schéma Prisma depuis la navigation"]
 status:          wip
-pathChecked:     ✘false
-metaDataChecked: ✘false
+pathChecked:     ✔true
+metaDataChecked: ✔true
 scriptChecked:   ✘false
 */
 import type { LucideIcon } from "lucide-react";
 import {
   Briefcase,
   Building2,
+  Database,
   FileCode2,
   GitBranch,
   History as HistoryIcon,
@@ -233,7 +239,20 @@ export const NAV_MODULES: NavModule[] = [
     href: "/dev",
     icon: Terminal,
     accent: "text-zinc-600 dark:text-zinc-400",
-    items: [],
+    items: [
+      {
+        label: "Commandes & composants",
+        href: "/dev",
+        icon: Terminal,
+        status: "ready",
+      },
+      {
+        label: "Schéma Prisma",
+        href: "/dev/schema",
+        icon: Database,
+        status: "ready",
+      },
+    ],
   },
   {
     id: "superadmin",

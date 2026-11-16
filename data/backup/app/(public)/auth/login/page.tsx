@@ -1,0 +1,135 @@
+/*
+path :           app/(public)/auth/login/page.tsx
+tag :            ["auth", "login", "page", "form", "zod", "ux", "password"]
+projectId :      <UltimateBaseApp>
+type :           page
+generic :        false
+
+role :           Page publique de connexion. Formulaire email + mot de passe
+                 (masqué, toggle œil). Appelle authClient.signIn.email puis
+                 redirige vers /home. Lien vers /auth/register.
+
+flow :           useForm<LoginInput>({ resolver: zodResolver(loginSchema) })
+                 → onSubmit → signIn.email({ email, password })
+                 → succès : router.push("/home") → erreur : toast.error.
+
+ecosystem :      Auth = [
+                   "@/app/(public)/auth/login/page.tsx",
+                   "@/lib/auth/auth-client.ts",
+                   "@/lib/validations/auth.ts",
+                 ]
+relatedFiles :   ["@/app/(public)/auth/register/page.tsx", "@/lib/validations/auth.ts", "@/lib/auth/auth-client.ts"]
+imports :        ["react", "next/link", "next/navigation", "react-hook-form",
+                  "@hookform/resolvers/zod", "sonner", "lucide-react",
+                  "@/lib/validations/auth", "@/lib/auth/auth-client",
+                  "@/components/ui/button", "@/components/ui/input",
+                  "@/components/ui/label"]
+exports :        ["default LoginPage"]
+useBy :          []
+
+userStories :    ["*en tant qu'utilisateur je veux me connecter avec email et mot de passe",
+                  "*en tant qu'utilisateur je veux afficher/masquer mon mot de passe"]
+status :         wip
+pathChecked :    ✔true
+metaDataChecked : ✔true
+scriptChecked :  ✔true
+*/
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
+import { Eye, EyeOff } from "lucide-react";
+import { loginSchema, type LoginInput } from "@/lib/validations/auth";
+import { authClient } from "@/lib/auth/auth-client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [pending, setPending] = React.useState(false);
+
+  const form = useForm<LoginInput>({
+    resolver: zodResolver(loginSchema),
+    mode: "onChange",
+    defaultValues: { email: "", password: "" },
+  });
+
+  async function onSubmit(data: LoginInput) {
+    setPending(true);
+    const { error } = await authClient.signIn.email({
+      email: data.email,
+      password: data.password,
+    });
+    setPending(false);
+
+    if (error) {
+      toast.error(error.message ?? "Connexion impossible.");
+      return;
+    }
+
+    toast.success("Connecté.");
+    router.push("/home");
+  }
+
+  return (
+    <main className="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-12 sm:py-16">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Connexion</h1>
+        <p className="text-sm text-muted-foreground">
+          Accédez à votre espace Ultimate Base App.
+        </p>
+      </header>
+
+      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="email">Email</Label>
+          <Input id="email" type="email" autoComplete="email" {...form.register("email")} />
+          {form.formState.errors.email && (
+            <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="password">Mot de passe</Label>
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              className="pr-10"
+              {...form.register("password")}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+            >
+              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
+          {form.formState.errors.password && (
+            <p className="text-xs text-destructive">{form.formState.errors.password.message}</p>
+          )}
+        </div>
+
+        <Button type="submit" disabled={pending || !form.formState.isValid} className="mt-2">
+          {pending ? "Connexion…" : "Se connecter"}
+        </Button>
+      </form>
+
+      <p className="text-center text-sm text-muted-foreground">
+        Pas encore de compte ?{" "}
+        <Link href="/auth/register" className="font-medium text-foreground underline underline-offset-4">
+          Créer un compte
+        </Link>
+      </p>
+    </main>
+  );
+}

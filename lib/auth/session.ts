@@ -1,48 +1,42 @@
 /*
 path :           lib/auth/session.ts
-tag :            ["auth", "session", "stub", "better-auth", "generic"]
-projectId:       <UltimateBaseApp>
-type:            helper
-generic:         true
+tag :            ["auth", "session", "server", "better-auth"]
+projectId :      <UltimateBaseApp>
+type :           helper
+generic :        true
 
-role:            Point d'entrée UNIQUE pour la session utilisateur. Tant
-                 que Better Auth n'est pas installé, expose un stub qui
-                 retourne un utilisateur factice avec le rôle SUPER_ADMIN
-                 (pour permettre de tester /superadmin immédiatement).
-                 Une fois Better Auth installé, il suffit de remplacer
-                 le corps de getSession() par auth.api.getSession() —
-                 aucun autre fichier à modifier. Le helper
-                 getCurrentPlatformRole() encapsule la lecture du rôle
-                 pour que la sidebar et le manager n'aient jamais à
-                 connaître le fournisseur d'auth.
+role :           Point d'entrée unique pour lire la session côté serveur.
+                 Remplace le stub précédent par auth.api.getSession().
+                 Expose getSession() (session typée ou null) et
+                 getCurrentPlatformRole() (rôle plateforme avec fallback).
+                 Aucun composant ne doit importer auth directement pour
+                 lire la session : tout passe par ce fichier.
 
-flow:            getSession() → TODO BETTER AUTH : retourne un stub
-                 { user: { id, email, name, platformRole } }.
-                 getCurrentPlatformRole() → getSession() → retourne
-                 session?.user.platformRole ?? DEFAULT_PLATFORM_ROLE.
+flow :           getSession() → auth.api.getSession({ headers }) → Session | null.
+                 getCurrentPlatformRole() → session?.user.platformRole ?? "USER".
 
-ecosystem:       Auth = [
+ecosystem :      Auth = [
+                   "@/app/api/auth/[...all]/route.ts",
+                   "@/lib/auth/auth-client.ts",
+                   "@/lib/auth/auth.ts",
                    "@/lib/auth/session.ts",
-                   "@/modules/rbac/platform-role.ts",
+                   "@/lib/db.ts",
+                   "@/lib/validations/auth.ts",
                  ]
-relatedFiles:    ["@/modules/rbac/platform-role.ts",
-                  "@/app/superadmin/page.tsx",
-                  "@/app/superadmin/components/PlatformRoleManager.tsx",
-                  "@/app/layout.tsx"]
-imports:         ["@/modules/rbac/platform-role"]
-exports:         ["getSession", "getCurrentPlatformRole",
-                  "SessionUser", "Session"]
-useBy:           ["@/app/layout.tsx",
-                  "@/app/superadmin/page.tsx",
-                  "@/app/superadmin/components/PlatformRoleManager.tsx"]
+relatedFiles :   ["@/lib/auth/auth.ts", "@/modules/rbac/platform-role.ts", "@/app/(app)/layout.tsx"]
+imports :        ["next/headers", "@/lib/auth/auth", "@/modules/rbac/platform-role"]
+exports :        ["getSession", "getCurrentPlatformRole", "Session", "SessionUser"]
+useBy :          ["@/app/(app)/layout.tsx", "@/app/(app)/superadmin/page.tsx"]
 
-userStories:     ["*en tant que développeur je veux brancher Better Auth sans réécrire toute l'app",
-                  "*en tant que développeur je veux tester /superadmin avant l'installation de Better Auth"]
-status:          planned
-pathChecked:     ✘false
-metaDataChecked: ✘false
-scriptChecked:   ✘false
+userStories :    ["*en tant que développeur je veux lire la session réelle côté serveur",
+                  "*en tant que développeur je veux brancher Better Auth sans réécrire l'app"]
+status :         wip
+pathChecked :    ✔true
+metaDataChecked : ✔true
+scriptChecked :  ✔true
 */
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth/auth";
 import {
   DEFAULT_PLATFORM_ROLE,
   type PlatformRole,
@@ -55,41 +49,23 @@ export type SessionUser = {
   platformRole: PlatformRole;
 };
 
-export type Session = {
-  user: SessionUser;
-} | null;
+export type Session = { user: SessionUser } | null;
 
-/**
- * TODO BETTER AUTH :
- * Remplacer le corps de cette fonction par :
- *
- *   import { auth } from "@/modules/auth/auth";
- *   export async function getSession(): Promise<Session> {
- *     const session = await auth.api.getSession({ headers: await headers() });
- *     if (!session) return null;
- *     return {
- *       user: {
- *         id: session.user.id,
- *         email: session.user.email,
- *         name: session.user.name,
- *         platformRole:
- *           (session.user.platformRole as PlatformRole | undefined) ??
- *           DEFAULT_PLATFORM_ROLE,
- *       },
- *     };
- *   }
- *
- * Aucun autre fichier du projet n'a besoin d'être modifié : tout passe
- * par getSession() et getCurrentPlatformRole().
- */
 export async function getSession(): Promise<Session> {
-  // ─── STUB — À SUPPRIMER APRÈS INSTALLATION DE BETTER AUTH ───
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
+
+  if (!session) return null;
+
   return {
     user: {
-      id: "stub-super-admin",
-      email: "superadmin@local.dev",
-      name: "Super Admin (stub)",
-      platformRole: "SUPER_ADMIN",
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+      platformRole:
+        ((session.user as { platformRole?: string }).platformRole as PlatformRole) ??
+        DEFAULT_PLATFORM_ROLE,
     },
   };
 }

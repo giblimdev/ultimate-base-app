@@ -62,19 +62,20 @@ un espace métier isolé du socle (Business App).
 
 Architecture complète des fichiers à développer
 ultimate-base-app/
-
-
+//// 
+c'est quoi cette merde a deplacer dans data data/appConfig ????? a supprimer ???? il y a data/app !
+C:\Users\jean-philippe\Desktop\ultimate-base-app\MiamMiamListo\data\app\exclusions.json
+/////
 
 /// non de l'app dans config.
-generer les commande dans dev
+generer les commande dans dev/page
 ////
 
 ////
 menu avec page et dev et business
 ////
 
-////. env a faire 
-//////////
+
 
 ////
 layout affreu
@@ -103,5 +104,36 @@ composanr retour
 
 
 ///
-le menue peuvennt etr e de s fky card
+les menu des tools peuvennt etre des fky card
 ////
+
+
+////
+page  ()
+///
+
+
+/////
+profile
+workspace
+WorkspaceSettings ??? utile oou non ?
+Team
+
+Membership et teamMember ????
+
+invitation ???
+
+
+SCRUM    table save a faire. 
+
+recette
+
+plante, 
+
+blog, 
+
+use save JSONB
+////
+
+
+

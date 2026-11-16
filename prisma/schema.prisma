@@ -1,7 +1,117 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+/**
+ * path :           prisma/schema.prisma
+ * tag :            ["prisma", "schema", "postgresql", "better-auth",
+ * "user", "session", "account", "verification",
+ * "rbac", "platform-role", "workspace", "team",
+ * "membership", "invitation"]
+ * projectId:       <UltimateBaseApp>
+ * type:            config
+ * generic:         false
+ * role:
+ * Schéma Prisma PostgreSQL du socle UltimateBaseApp.
+ * ARCHITECTURE
+ * 1. AUTHENTIFICATION — Better Auth v1.x
+ * User, Session, Account, Verification.
+ * 2. RBAC PLATEFORME
+ * User.platformRole :
+ * SUPER_ADMIN | SUPPORT | PLATFORM_USER
+ * Rôle global, au-dessus de tous les workspaces.
+ * 3. WORKSPACE (= Tenant)
+ * Frontière d'isolation logique et de sécurité.
+ * C'est ce que l'utilisateur appelle « mon espace ».
+ * Un Workspace peut représenter une entreprise, une
+ * franchise, un indépendant ou un espace personnel.
+ * Le nom technique « Tenant » et le nom UX « Workspace »
+ * désignent LE MÊME concept : on garde un seul modèle
+ * (Workspace) pour éviter la duplication.
+ * 4. MEMBERSHIP — rôle Workspace (obligatoire)
+ * Relation N:N entre User et Workspace.
+ * Chaque membre possède UN rôle Workspace parmi :
+ * OWNER | ADMIN | MEMBER | GUEST.
+ * Ce rôle contrôle l'accès au workspace lui-même,
+ * la gestion des paramètres et l'invitation de membres.
+ * 5. TEAM — rôle Team (optionnel)
+ * Une Team appartient à UN Workspace (plat, sans parentId).
+ * Les équipes servent à organiser les membres par
+ * fonction (Marketing, Production, RH…), PAS à isoler
+ * des données métier.
+ * Un membre de Team possède UN rôle Team parmi :
+ * LEAD | MEMBER.
+ * Ce rôle contrôle UNIQUEMENT la gestion de l'équipe
+ * (ajouter/retirer des membres, modifier les paramètres
+ * de l'équipe). Il ne contrôle PAS l'accès aux données
+ * métier.
+ * 6. INVITATION
+ * Permet d'inviter un utilisateur dans un Workspace
+ * par email, avec un token et une date d'expiration.
+ * Indispensable pour l'onboarding : sans ce modèle,
+ * l'ajout d'un membre serait manuel en SQL.
+ * RELATIONS PRINCIPALES
+ * User N:N Workspace   (via Membership)
+ * Workspace 1:N Team
+ * User N:N Team        (via MemberTeam)
+ * Workspace 1:N Invitation
+ * RÈGLES DE SÉCURITÉ (vérifiées côté serveur)
+ * - Un User ne voit un Workspace que s'il possède une
+ * Membership ACTIVE sur ce Workspace.
+ * - Un User ne peut gérer une Team que s'il possède une
+ * MemberTeam avec role=LEAD sur cette Team, ET s'il est
+ * membre du Workspace propriétaire.
+ * - Un User ne peut accepter une Invitation que si l'email
+ * de l'invitation correspond à son email de compte.
+ * - La visibilité des données métier n'est PAS contrôlée
+ * par le rôle Team : elle est décidée par la logique
+ * métier (workspaceId, teamId sur les tables de données,
+ * ou ResourcePermission si un jour nécessaire).
+ * CONVENTIONS
+ * - Identifiants CUID pour les nouvelles entités.
+ * - Identifiants Better Auth conservés en String.
+ * - Tables PostgreSQL en snake_case.
+ * - Suppression en cascade pour les relations dépendantes.
+ * - Unicité des appartenances et des slugs dans leur périmètre.
+ * - Rôles stockés en VarChar(32) avec défaut explicite.
+ * flow:
+ * npx prisma validate --config prisma7.config.ts
+ * npx prisma migrate dev --name workspace_team --config prisma7.config.ts
+ * npx prisma generate --config prisma7.config.ts
+ * ecosystem:
+ * Database = [
+ * "prisma/schema.prisma",
+ * "prisma7.config.ts"
+ * ]
+ * relatedFiles:
+ * [
+ * "prisma7.config.ts",
+ * "lib/auth/session.ts",
+ * "lib/db/prisma.ts",
+ * "modules/rbac/platform-role.ts",
+ * "modules/workspace/guards.ts",
+ * "modules/team/guards.ts"
+ * ]
+ * imports:         []
+ * exports:         []
+ * useBy:
+ * [
+ * "lib/auth/session.ts",
+ * "modules/rbac",
+ * "modules/workspace",
+ * "modules/team"
+ * ]
+ * userStories:
+ * [
+ * "*en tant que développeur je veux un schéma Prisma prêt pour Better Auth et le RBAC plateforme",
+ * "*en tant qu'utilisateur je veux créer mon espace en 30 secondes",
+ * "*en tant qu'utilisateur je veux inviter mes collaborateurs par email",
+ * "*en tant qu'utilisateur je veux basculer entre mes espaces",
+ * "*en tant qu'utilisateur je veux organiser mes membres par équipes",
+ * "*en tant qu'admin je veux gérer les rôles de mes membres",
+ * "*en tant que lead d'équipe je veux gérer les membres de mon équipe"
+ * ]
+ * status:          wip
+ * pathChecked:     ✔true
+ * metaDataChecked: ✔true
+ * scriptChecked:   ✘false
+ */
 
 generator client {
   provider = "prisma-client"
@@ -10,4 +120,1204 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+//////////////////////////////////////////////////////
+/////     01. AUTHENTIFICATION — BETTER AUTH     /////
+//////////////////////////////////////////////////////
+
+// ------------------------------------------------------------
+// USER
+// ------------------------------------------------------------
+//
+// Utilisateur de la plateforme. Porte :
+// - son identité (email, nom, avatar) gérée par Better Auth ;
+// - son rôle plateforme global (platformRole) ;
+// - ses appartenances aux workspaces (via Membership) ;
+// - ses appartenances aux équipes (via MemberTeam).
+//
+// Un User peut appartenir à plusieurs Workspaces et à
+// plusieurs Teams. Aucun rôle Workspace ni Team n'est
+// stocké directement sur User : tout passe par les tables
+// de liaison (Membership, MemberTeam), pour garantir
+// l'isolation et éviter les rôles orphelins.
+//
+// ------------------------------------------------------------
+
+model User {
+  id            String   @id
+  email         String   @unique
+  name          String
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Rôle global sur UltimateBaseApp, au-dessus de tous les
+  // workspaces. Valeurs : SUPER_ADMIN | SUPPORT | PLATFORM_USER.
+  // Stocké en VarChar(32) pour rester lisible en DB et
+  // compatible avec les évolutions sans migration.
+  platformRole String @default("PLATFORM_USER") @db.VarChar(32)
+
+  // Authentification Better Auth.
+  sessions Session[]
+  accounts Account[]
+
+  // Appartenance aux espaces de travail (rôle Workspace).
+  memberships Membership[]
+
+  // Appartenance aux équipes (rôle Team).
+  memberTeams MemberTeam[]
+
+  // Invitations envoyées par cet utilisateur (traçabilité).
+  sentInvitations Invitation[] @relation("InvitationSender")
+
+  profile       Profile? // profil détaillé 1:1, optionnel (créé à l'inscription, enrichi ensuite)
+  postComments  PostComment[]
+  postAuthors   PostAuthor[]
+  plantCareLogs PlantCareLog[]
+  plantHarvests PlantHarvest[]
+  saveReciepes  SaveReciepes[]
+  savePlantes   SavePlantes[]
+  savePosts     SavePosts[]
+
+  @@index([platformRole])
+  @@map("user")
+}
+
+// ------------------------------------------------------------
+// SESSION
+// ------------------------------------------------------------
+//
+// Session Better Auth. Une ligne par session active.
+// Le token est unique et indexé pour la résolution rapide
+// à chaque requête HTTP.
+//
+// ------------------------------------------------------------
+
+model Session {
+  id        String   @id
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("session")
+}
+
+//------------------------------------------------------------
+// ACCOUNT
+// ------------------------------------------------------------
+//
+// Compte d'authentification lié à un User (OAuth, credentials).
+// Un User peut avoir plusieurs Accounts (Google + GitHub + email).
+//
+// ------------------------------------------------------------
+
+model Account {
+  id                    String    @id
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([providerId, accountId])
+  @@map("account")
+}
+
+// ------------------------------------------------------------
+// VERIFICATION
+// ------------------------------------------------------------
+//
+// Vérification Better Auth (email, reset password, magic link).
+// Token court, expiration courte, nettoyage périodique.
+//
+// ------------------------------------------------------------
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@index([expiresAt])
+  @@map("verification")
+}
+
+model Profile {
+  id     String @id @default(cuid()) // identifiant technique du profil
+  userId String @unique // FK vers User, @unique garantit la relation 1:1
+
+  // Identité complémentaire
+  firstName String? // prénom légal (Better Auth ne fournit qu'un "name" monolithique)
+  lastName  String? // nom de famille légal
+  bio       String? // bio courte affichée sur la page profil
+  phone     String? // téléphone, format international
+
+  // Localisation et préférences UI
+  locale   String  @default("fr") // langue d'affichage UI (fr, en…)
+  timezone String  @default("Europe/Paris") // fuseau IANA pour l'affichage des dates
+  country  String? // code pays ISO 3166-1 alpha-2 (FR, US…)
+  language String  @default("fr") // langue des emails/notifs (peut différer de locale)
+  theme    String  @default("system") // light | dark | system | autres thèmes si ajoutés par le client
+
+  // Liens publics
+  website  String? @db.VarChar(512) // site web personnel ou pro
+  linkedin String? @db.VarChar(512) // profil LinkedIn
+  twitter  String? @db.VarChar(512) // profil Twitter / X
+  github   String? @db.VarChar(512) // profil GitHub
+
+  // Préférences de notification
+  emailNotifications Boolean @default(true) // emails transactionnels (invitations, sécurité)
+  pushNotifications  Boolean @default(false) // notifications push (opt-in)
+  marketingEmails    Boolean @default(false) // emails marketing/newsletter (opt-in RGPD)
+
+  // Onboarding
+  onboardingCompleted Boolean   @default(false) // true quand le parcours guidé est terminé
+  onboardingStep      Int       @default(0) // étape courante (0 = pas commencé)
+  lastSeenAt          DateTime? // dernière activité connue (à mettre à jour aux moments choisis, pas à chaque requête)
+
+  // Horodatage
+  createdAt DateTime  @default(now()) // date de création du profil
+  updatedAt DateTime  @updatedAt // date de dernière modification (auto par Prisma)
+  deletedAt DateTime? // date de suppression (soft delete, null si actif)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade) // suppression du User → suppression du Profile
+
+  @@index([userId]) // accélère la recherche Profile depuis User
+  @@map("profile") // nom de table PostgreSQL en snake_case
+}
+
+////////////////////////////////////////
+/////     WORKSPACE (= TENANT)     /////
+////////////////////////////////////////
+
+// ------------------------------------------------------------
+// WORKSPACE
+// ------------------------------------------------------------
+//
+// Espace de travail indépendant. C'est le « tenant » du point
+// de vue technique : la frontière d'isolation logique et de
+// sécurité entre clients. C'est aussi ce que l'utilisateur
+// voit et nomme « mon espace ».
+//
+// Un Workspace peut représenter :
+// - Une entreprise.
+// - Une franchise.
+// - Un indépendant.
+// - Un espace personnel.
+//
+// Un Workspace possède :
+// - des membres (via Membership), chacun avec un rôle
+//   Workspace (OWNER | ADMIN | MEMBER | GUEST) ;
+// - des équipes (via Team), chacune avec des membres
+//   portant un rôle Team (LEAD | MEMBER) ;
+// - des invitations en attente (via Invitation).
+//
+// Un User peut appartenir à plusieurs Workspaces. Le
+// changement de Workspace se fait via un sélecteur UI qui
+// met à jour le contexte courant (cookie ou segment d'URL).
+//
+// ------------------------------------------------------------
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  status      String   @default("ACTIVE") @db.VarChar(32)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Membres du workspace avec leur rôle Workspace.
+  members Membership[]
+
+  // Équipes internes du workspace.
+  teams Team[]
+
+  // Invitations en attente ou acceptées.
+  invitations       Invitation[]
+  workspaceSettings WorkspaceSettings?
+
+  //
+  projects       Project[]
+  recipes        Recipe[]
+  posts          Post[]
+  postCategories PostCategory[]
+  postTags       PostTag[]
+  plantSpecies   PlantSpecies[]
+  plantLocations PlantLocation[]
+  plants         Plant[]
+  saveReciepes   SaveReciepes[]
+  savePlantes    SavePlantes[]
+  savePosts      SavePosts[]
+
+  @@index([status])
+  @@map("workspace")
+}
+
+model WorkspaceSettings {
+  id          String @id @default(cuid())
+  workspaceId String @unique
+
+  locale   String @default("fr")
+  timezone String @default("Europe/Paris")
+
+  primaryColor   String?
+  secondaryColor String?
+
+  logoUrl String?
+
+  dateFormat String @default("DD/MM/YYYY")
+
+  settings Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_settings")
+}
+
+// ------------------------------------------------------------
+// MEMBERSHIP — rôle Workspace (obligatoire)
+// ------------------------------------------------------------
+//
+// Table de liaison User <-> Workspace.
+//
+// Un User peut être membre de plusieurs Workspaces.
+// Un Workspace peut accueillir plusieurs Users.
+//
+// Chaque Membership porte UN rôle Workspace :
+// - OWNER  : créateur du workspace, accès total, peut
+//            supprimer le workspace, transférer la propriété.
+// - ADMIN  : gestion des membres, des équipes, des
+//            paramètres du workspace. Ne peut pas supprimer
+//            le workspace ni changer le rôle OWNER.
+// - MEMBER : accès standard aux fonctionnalités du
+//            workspace. Ne peut pas gérer les membres.
+// - GUEST  : accès restreint à certaines ressources
+//            (lecture seule par défaut), utile pour les
+//            externes (clients, partenaires).
+//
+// Ce rôle contrôle l'accès au workspace lui-même. Il NE
+// contrôle PAS les données métier : celles-ci sont filtrées
+// par workspaceId dans les requêtes, pas par rôle.
+//
+// Un User ne peut avoir qu'UNE Membership par Workspace.
+// La contrainte @@id garantit l'unicité.
+//
+// ------------------------------------------------------------
+
+model Membership {
+  workspaceId String
+  userId      String
+
+  // Rôle Workspace : OWNER | ADMIN | MEMBER | GUEST.
+  role String @default("MEMBER") @db.VarChar(32)
+
+  // Statut de l'appartenance : ACTIVE | INVITED | SUSPENDED.
+  // ACTIVE    : membre actif, peut accéder au workspace.
+  // INVITED   : invité, en attente d'acceptation.
+  // SUSPENDED : suspendu, ne peut plus accéder au workspace
+  //             mais conserve son historique.
+  status String @default("ACTIVE") @db.VarChar(32)
+
+  joinedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId, status])
+  @@index([workspaceId, role])
+  @@map("membership")
+}
+
+// ============================================================
+// 03. TEAMS — rôle Team (optionnel)
+// ============================================================
+
+// ------------------------------------------------------------
+// TEAM
+// ------------------------------------------------------------
+//
+// Équipe interne à un Workspace. Structure PLATE : pas de
+// parentId, pas de sous-équipes récursives. Si un client a
+// besoin de sous-équipes, il crée plusieurs équipes sœurs
+// (ex: « Marketing » et « Marketing-Digital ») plutôt qu'une
+// hiérarchie.
+//
+// Les équipes servent à ORGANISER les membres par fonction
+// (Marketing, Production, RH, Logistique…), PAS à isoler
+// des données métier. La visibilité des données métier est
+// décidée par la logique métier (workspaceId, teamId sur les
+// tables de données, ou ResourcePermission si nécessaire).
+//
+// Une Team appartient à UN seul Workspace. Supprimer un
+// Workspace supprime ses Teams en cascade.
+//
+// ------------------------------------------------------------
+
+model Team {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  displayOrder Int
+  name         String
+  slug         String
+  description  String?
+  status       String   @default("ACTIVE") @db.VarChar(32)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Workspace propriétaire de l'équipe.
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // Membres de l'équipe avec leur rôle Team.
+  members MemberTeam[]
+  recipes Recipe[]
+  posts   Post[]
+  plants  Plant[]
+
+  // Un slug unique par Workspace : deux Workspaces
+  // différents peuvent avoir une Team « marketing », mais
+  // un même Workspace ne peut pas avoir deux Teams « marketing ».
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([status])
+  @@map("team")
+}
+
+// ------------------------------------------------------------
+// MEMBER TEAM — rôle Team (optionnel)
+// ------------------------------------------------------------
+//
+// Table de liaison User <-> Team.
+//
+// Un User peut appartenir à plusieurs Teams d'un même
+// Workspace. Un User ne peut appartenir qu'UNE fois à une
+// même Team (contrainte @@id).
+//
+// Chaque MemberTeam porte UN rôle Team :
+// - LEAD   : peut ajouter/retirer des membres de l'équipe,
+//            modifier les paramètres de l'équipe. Ne peut
+//            pas gérer le Workspace (réservé à Membership).
+// - MEMBER : membre standard de l'équipe, ne peut pas
+//            gérer l'équipe.
+//
+// IMPORTANT — Ce rôle NE contrôle PAS l'accès aux données
+// métier. Il contrôle UNIQUEMENT la gestion de l'équipe
+// elle-même (qui peut ajouter des membres, qui peut modifier
+// le nom de l'équipe). Pour la visibilité des données, voir
+// les tables métier (ajouter teamId + filtrer par appartenance).
+//
+// RÈGLE DE SÉCURITÉ : pour être ajouté à une Team, un User
+// doit déjà être membre du Workspace propriétaire (Membership
+// ACTIVE). Cette règle est vérifiée côté serveur, pas en DB
+// (PostgreSQL ne peut pas contraindre une appartenance
+// transitive sans trigger).
+//
+// ------------------------------------------------------------
+
+model MemberTeam {
+  teamId String
+  userId String
+
+  // Rôle Team : LEAD | MEMBER.
+  role String @default("MEMBER") @db.VarChar(32)
+
+  joinedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+  @@index([teamId, role])
+  @@map("member_team")
+}
+
+// ============================================================
+// 04. INVITATIONS
+// ============================================================
+
+// ------------------------------------------------------------
+// INVITATION
+// ------------------------------------------------------------
+//
+// Invitation d'un utilisateur à rejoindre un Workspace, par
+// email. Un token unique et une date d'expiration permettent
+// d'accepter l'invitation via un lien.
+//
+// Le flux :
+// 1. Un ADMIN/OWNER du Workspace crée une Invitation
+//    (email, role Workspace souhaité).
+// 2. Un email est envoyé avec un lien contenant le token.
+// 3. Le destinataire clique le lien.
+// 4. Si son email correspond à celui de l'invitation,
+//    une Membership est créée avec le rôle de l'invitation,
+//    et acceptedAt est renseigné.
+//
+// Une Invitation non acceptée peut être révoquée en la
+// supprimant (onDelete: Cascade si le Workspace est supprimé).
+//
+// Une Invitation expirée (expiresAt < now) ne peut plus être
+// acceptée. Le serveur doit vérifier expiresAt ET acceptedAt
+// à chaque acceptation.
+//
+// invitedById trace qui a envoyé l'invitation, pour audit.
+//
+// ------------------------------------------------------------
+
+model Invitation {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  // Email du destinataire. Doit correspondre à l'email
+  // du compte Better Auth au moment de l'acceptation.
+  email String
+
+  // Rôle Workspace qui sera attribué à l'acceptation.
+  // OWNER | ADMIN | MEMBER | GUEST.
+  role String @default("MEMBER") @db.VarChar(32)
+
+  // Token unique et imprévisible (crypto.randomUUID ou
+  // équivalent), utilisé dans le lien d'invitation.
+  token String @unique
+
+  // Date d'expiration (ex: now + 7 jours à la création).
+  expiresAt DateTime
+
+  // Date d'acceptation. NULL tant que non acceptée.
+  acceptedAt DateTime?
+
+  // Utilisateur qui a envoyé l'invitation (audit).
+  invitedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User?     @relation("InvitationSender", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, email])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("invitation")
+}
+
+///////////////////////////////////
+/////     SCRUM
+//////////////////////////////////
+
+/**
+ * path:            prisma/schema.prisma
+ * projectId:       UltimateBaseApp
+ * type:            model
+ * generic:         false
+ * role:
+ * Modèles Project et Issue du module SCRUM.
+ * Project :
+ * - Gestion des projets par Workspace.
+ * - Méthodologie, visibilité et cycle de vie.
+ * - Configuration JSONB et métadonnées.
+ * Issue :
+ * - Gestion unifiée des User Stories, Tasks, Subtasks,
+ * Bugs, Spikes et Enablers.
+ * - Hiérarchie parent-enfant facultative.
+ * - Affectations, labels, commentaires et dépendances.
+ */
+
+// =====================================================
+// ENUMS — PROJECT
+// =====================================================
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+  CANCELLED
+}
+
+enum ProjectVisibility {
+  PRIVATE
+  INTERNAL
+  PUBLIC
+}
+
+enum ProjectMethodology {
+  SCRUM
+  KANBAN
+  SCRUMBAN
+  WATERFALL
+  HYBRID
+  CUSTOM
+}
+
+// =====================================================
+// ENUMS — ISSUE
+// =====================================================
+
+enum IssueType {
+  USER_STORY
+  TASK
+  SUBTASK
+  BUG
+  SPIKE
+  ENABLER
+}
+
+enum IssuePriority {
+  LOWEST
+  LOW
+  MEDIUM
+  HIGH
+  HIGHEST
+}
+
+// =====================================================
+// MODEL — PROJECT
+// =====================================================
+
+model Project {
+  // ---------------------------------------------------
+  // IDENTIFICATION
+  // ---------------------------------------------------
+
+  id           String  @id @default(cuid())
+  workspaceId  String
+  displayOrder Int
+  key          String
+  name         String
+  slug         String
+  description  String?
+
+  // ---------------------------------------------------
+  // ORGANISATION
+  // ---------------------------------------------------
+
+  status      ProjectStatus      @default(PLANNING)
+  visibility  ProjectVisibility  @default(PRIVATE)
+  methodology ProjectMethodology @default(SCRUM)
+
+  // ---------------------------------------------------
+  // PLANIFICATION
+  // ---------------------------------------------------
+
+  startDate   DateTime?
+  targetDate  DateTime?
+  completedAt DateTime?
+
+  // ---------------------------------------------------
+  // CONFIGURATION JSONB
+  // ---------------------------------------------------
+
+  settings Json? @db.JsonB
+  metadata Json? @db.JsonB
+
+  // ---------------------------------------------------
+  // AUDIT
+  // ---------------------------------------------------
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  archivedAt DateTime?
+
+  // ---------------------------------------------------
+  // RELATIONS
+  // ---------------------------------------------------
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // ---------------------------------------------------
+  // CONTRAINTES ET INDEX
+  // ---------------------------------------------------
+  issues      Issue[]
+  saveProject Json?   @db.JsonB
+
+  @@unique([workspaceId, key])
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+  @@index([status])
+  @@index([startDate, targetDate])
+  @@map("project")
+}
+
+// =====================================================
+// MODEL — ISSUE
+// =====================================================
+
+model Issue {
+  // ---------------------------------------------------
+  // IDENTIFICATION
+  // ---------------------------------------------------
+
+  id        String @id @default(cuid())
+  projectId String
+
+  // ---------------------------------------------------
+  // HIERARCHIE
+  // ---------------------------------------------------
+
+  // Parent facultatif : une Issue peut être indépendante.
+  parentId String?
+
+  // ---------------------------------------------------
+  // TYPE ET CONTENU
+  // ---------------------------------------------------
+
+  type        IssueType
+  key         String    @db.VarChar(30)
+  title       String    @db.VarChar(255)
+  description String?
+
+  // ---------------------------------------------------
+  // GESTION DU TRAVAIL
+  // ---------------------------------------------------
+
+  status      String        @default("TODO") @db.VarChar(50)
+  priority    IssuePriority @default(MEDIUM)
+  storyPoints Float?
+  position    Int           @default(0)
+
+  // ---------------------------------------------------
+  // DONNEES COMPLEMENTAIRES
+  // ---------------------------------------------------
+
+  metadata Json? @db.JsonB
+
+  // ---------------------------------------------------
+  // AUDIT
+  // ---------------------------------------------------
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ---------------------------------------------------
+  // RELATIONS
+  // ---------------------------------------------------
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Relation réflexive parent-enfants.
+  parent Issue? @relation("IssueHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+
+  children Issue[] @relation("IssueHierarchy")
+
+  // ---------------------------------------------------
+  // CONTRAINTES ET INDEX
+  // ---------------------------------------------------
+
+  @@unique([projectId, key])
+  @@index([projectId, type])
+  @@index([projectId, status])
+  @@index([projectId, priority])
+  @@index([parentId])
+  @@index([projectId, position])
+  @@index([createdAt])
+  @@map("issue")
+}
+
+////////////////////////////
+/////     RECETTES     /////
+////////////////////////////
+enum Allergen {
+  // ── 14 allergènes INCO (UE 1169/2011) ──
+  CEREALS_GLUTEN // céréales contenant du gluten (blé, seigle, orge, avoine, épeautre…)
+  CRUSTACEANS // crustacés (crevettes, crabes, homards…)
+  EGGS // œufs et produits à base d'œufs
+  FISH // poissons et produits à base de poisson
+  PEANUTS // arachides
+  SOYBEANS // soja et produits à base de soja
+  MILK // lait et produits laitiers (lactose)
+  NUTS // fruits à coque (amandes, noisettes, noix, cajou, pécan, Brésil, pistache, macadamia)
+  CELERY // céleri et produits à base de céleri
+  MUSTARD // moutarde et produits à base de moutarde
+  SESAME // graines de sésame
+  SULPHITES // anhydride sulfureux et sulfites (> 10 mg/kg ou 10 mg/L)
+  LUPIN // lupin et produits à base de lupin
+  MOLLUSCS // mollusques (moules, huîtres, calamars, escargots…)
+}
+
+model Recipe {
+  id           String             @id @default(cuid())
+  workspaceId  String? // isolation tenant,
+  teamId       String? // équipe propriétaire (optionnel, filtrage métier)
+  displayOrder Int
+  category     String // type de recette (entrée, plat, dessert, boisson, sauce…).
+  cuisine      String // origine ou style culinaire (française, colombienne, asiatique…).
+  difficulty   String // difficulté (EASY, MEDIUM, HARD).
+  language     String // langue de rédaction (fr, es, en).
+  title        String
+  slug         String
+  description  String?
+  status       String             @default("DRAFT") // DRAFT | PUBLISHED | ARCHIVED
+  prepMinutes  Int? // temps de préparation
+  cookMinutes  Int? // temps de cuisson
+  servings     Int? // nombre de portions
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  deletedAt    DateTime?
+  workspace    Workspace?         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team         Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  ingredients  RecipeIngredient[]
+  steps        RecipeStep[]
+  allergen     Allergen[]
+  saverecipe   Json?              @db.JsonB // sauvegarde de une recettes
+
+  @@unique([workspaceId, slug]) // slug unique par workspace
+  @@index([workspaceId, status])
+  @@index([teamId])
+  @@map("recipe")
+}
+
+enum IngredientCategory {
+  MEAT // viandes (bœuf, porc, volaille, agneau…)
+  FISH // poissons (saumon, thon, cabillaud…)
+  SEAFOOD // fruits de mer (crevettes, moules, huîtres, calamars…)
+  VEGETABLE // légumes et crudités (carotte, salade, tomate…)
+  FRUIT // fruits (pomme, citron, banane…)
+  DAIRY // produits laitiers (lait, fromages, yaourts…)
+  EGG // œufs et ovoproduits
+  CEREAL_STARCH // céréales et féculents (blé, riz, pâtes, pomme de terre…)
+  LEGUME // légumineuses (lentilles, pois chiches, haricots…)
+  FAT_OIL // matières grasses (huiles, beurre, margarine, saindoux…)
+  BEVERAGE // boissons (eau, jus, café, thé, sodas…)
+  COMPOSITE_DISH // plats composés (plats préparés, mixtures…)
+  SPICE_SAUCE // épices et sauces (poivre, curry, ketchup, moutarde…)
+  ADDITIVE // additifs, colorants, conservateurs
+  OTHER // divers
+}
+
+model RecipeIngredient {
+  id                 String             @id @default(cuid())
+  recipeId           String
+  ingredientCategory IngredientCategory
+  name               String // "farine", "beurre"…
+  description        String? // 
+  quantity           Float? // 250, 1.5…
+  unit               String? // "g", "ml", "c. à s."…
+  position           Int                @default(0) // ordre d'affichage
+  createdAt          DateTime           @default(now())
+  allergen           Allergen[]
+  recipe             Recipe             @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+  @@map("recipe_ingredient")
+}
+
+model RecipeStep {
+  id          String   @id @default(cuid())
+  recipeId    String
+  position    Int // ordre de l'étape (1, 2, 3…)
+  instruction String // texte de l'étape
+  durationMin Int? // durée optionnelle de l'étape
+  createdAt   DateTime @default(now())
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId, position])
+  @@map("recipe_step")
+}
+
+//////////////////////////
+/////     PLANTS     /////
+//////////////////////////
+// ============================================================
+// 06. PLANTS — plantes de l'hacienda
+// ============================================================
+
+// ------------------------------------------------------------
+// PLANT SPECIES — référentiel botanique par workspace
+// ------------------------------------------------------------
+enum GrowthHabit {
+  TREE // arbre : tronc ligneux unique, ramifié haut
+  SHRUB // arbuste : ligneux, ramifié dès la base
+  SUB_SHRUB // sous-arbrisseau : ligneux bas (lavande, thym)
+  HERB // plante herbacée : tige non ligneuse (tomate, basilic)
+  VINE // liane : grimpante volubile ou à vrilles (vigne, jasmin)
+  CLIMBER // grimpante non volubile (lierre, clématite)
+  CREEPER // rampante : tige au sol (fraisier, menthe)
+  GROUNDCOVER // couvre-sol : tapissant (thym rampant, sedum)
+  BAMBOO // bambou : ligneux creux à croissance rapide
+  SUCCULENT // succulente : réserve d'eau (cactus, agave)
+  AQUATIC // aquatique : racines en eau (nénuphar)
+  PARASITE // parasite / épiphyte (gui, orchidée)
+}
+
+enum CulinaryUse {
+  FRUIT_VEGETABLE // légume-fruit (tomate, courgette, poivron)
+  LEAF_VEGETABLE // légume-feuille (salade, épinard, chou)
+  ROOT_VEGETABLE // légume-racine (carotte, navet)
+  BULB_VEGETABLE // légume-bulbe (oignon, ail)
+  STEM_VEGETABLE // légume-tige (poireau, céleri)
+  FLOWER_VEGETABLE // légume-fleur (brocoli, chou-fleur)
+  LEGUME // légumineuse (haricot, pois, lentille)
+  FRUIT // fruit au sens culinaire (pomme, fraise)
+  HERB // aromatique (basilic, thym, persil)
+  MEDICINAL // médicinale (lavande, camomille)
+  ORNAMENTAL // ornementale pure (rose, tulipe)
+  COVER_CROP // engrais vert (trèfle, phacélie)
+  FORAGE // fourragère (luzerne, fétuque)
+}
+
+enum PlantUse {
+  CULINARY // cuisine (légume, fruit, aromatique culinaire)
+  HERBAL // herboristerie (tisanes, infusions, remèdes)
+  ORNAMENTAL // ornement (jardin d'agrément, fleurissement)
+  MELLIFEROUS // mellifère (attire les pollinisateurs, miel)
+  MEDICINAL // médicinal (usage thérapeutique)
+  AROMATIC // aromatique (huiles essentielles, parfum)
+  DYE // tinctorial (colorant naturel)
+  FIBER // fibre (textile, cordage, vannerie)
+  FORAGE // fourrager (alimentation animale)
+  COVER_CROP // engrais vert (couverture du sol)
+  REPELLENT // répulsif (insecticide, anti-nuisible)
+  COMPANION // plante compagne (association culturale)
+  CONSERVATION // conservatoire (collection, patrimoine)
+  EDUCATIONAL // pédagogique (jardin pédagogique)
+}
+
+model PlantSpecies {
+  id           String @id @default(cuid())
+  workspaceId  String // espèce propre à un workspace (référentiel local)
+  commonNameFr String // nom courant ("Tomate cerise", "Basilic")
+  commonNameEs String
+
+  latinName   String? // nom latin ("Solanum lycopersicum")
+  family      String? // famille botanique ("Solanaceae")
+  needs       Json
+  growthHabit GrowthHabit //
+
+  description String? // notes libres (conseils de culture…)
+  plantUse    PlantUse[]
+  createdAt   DateTime   @default(now()) // date de création
+  updatedAt   DateTime   @updatedAt // date de dernière modification
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression espèces
+  plants    Plant[] // plants de cette espèce
+
+  @@unique([workspaceId, commonNameFr]) // pas deux espèces du même nom dans un workspace
+  @@index([workspaceId]) // liste des espèces d'un workspace
+  @@map("plant_species")
+}
+
+// ------------------------------------------------------------
+// PLANT LOCATION — zone physique de l'hacienda (hiérarchie optionnelle)
+// ------------------------------------------------------------
+model PlantLocation {
+  id          String          @id @default(cuid())
+  workspaceId String // zone propre à un workspace
+  parentId    String? // zone parente optionnelle (Hacienda → Serre → Rangée A)
+  name        String          @db.VarChar(128) // nom de la zone ("Serre 1", "Parcelle Nord")
+  type        String          @default("GARDEN") @db.VarChar(32) // GARDEN | GREENHOUSE | POT | FIELD | ROW
+  description String? // notes (orientation, surface…)
+  position    Int             @default(0) // ordre d'affichage parmi les zones sœurs
+  createdAt   DateTime        @default(now()) // date de création
+  updatedAt   DateTime        @updatedAt // date de dernière modification
+  culinaryUse CulinaryUse
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression zones
+  parent      PlantLocation?  @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: SetNull) // suppression parent → enfants remontés à la racine
+  children    PlantLocation[] @relation("LocationHierarchy") // sous-zones
+  plants      Plant[] // plants situés dans cette zone
+
+  @@unique([workspaceId, parentId, name]) // nom unique parmi les zones sœurs
+  @@index([workspaceId, parentId]) // liste des zones d'un parent
+  @@index([workspaceId, type]) // filtrage par type de zone
+  @@map("plant_location")
+}
+
+// ------------------------------------------------------------
+// PLANT — plante individuelle de l'hacienda
+// ------------------------------------------------------------
+model Plant {
+  id                String    @id @default(cuid())
+  workspaceId       String? // isolation tenant
+  teamId            String? // équipe responsable (filtrage métier uniquement, PAS un guard)
+  speciesId         String? // espèce botanique (optionnelle : plant non identifié)
+  locationId        String? // zone physique (optionnelle : plant pas encore planté)
+  label             String    @db.VarChar(255) // nom donné au plant ("Tomate du fond", "Basilic cuisine")
+  status            String    @default("ACTIVE") @db.VarChar(32) // ACTIVE | DEAD | HARVESTED | ARCHIVED
+  plantedAt         DateTime? // date de plantation
+  expectedHarvestAt DateTime? // date de récolte prévue
+  notes             String? // notes libres (état, observations…)
+  createdAt         DateTime  @default(now()) // date de création
+  updatedAt         DateTime  @updatedAt // date de dernière modification
+
+  workspace Workspace?     @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression plants
+  team      Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull) // suppression team → plants conservés
+  species   PlantSpecies?  @relation(fields: [speciesId], references: [id], onDelete: SetNull) // suppression espèce → plants conservés
+  location  PlantLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull) // suppression zone → plants conservés
+  careLogs  PlantCareLog[] // journal des soins
+  harvests  PlantHarvest[] // récoltes
+  media     PlantMedia[] // photos du plant
+
+  @@index([workspaceId, status]) // liste des plants par workspace + statut
+  @@index([workspaceId, locationId]) // plants d'une zone
+  @@index([speciesId]) // plants d'une espèce
+  @@index([teamId]) // filtrage par équipe
+  @@map("plant")
+}
+
+// ------------------------------------------------------------
+// PLANT CARE LOG — journal des soins (arrosage, taille, traitement)
+// ------------------------------------------------------------
+model PlantCareLog {
+  id          String   @id @default(cuid())
+  plantId     String // FK vers Plant
+  userId      String? // auteur du soin (optionnel : soin automatisé / système)
+  type        String   @db.VarChar(32) // WATER | PRUNE | FERTILIZE | TREAT | REPOT | OTHER
+  notes       String? // détail du soin
+  performedAt DateTime @default(now()) // date/heure du soin
+  createdAt   DateTime @default(now()) // date d'enregistrement
+
+  plant Plant @relation(fields: [plantId], references: [id], onDelete: Cascade) // suppression plant → suppression journal
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull) // suppression user → soin conservé (auteur anonymisé)
+
+  @@index([plantId, performedAt]) // journal d'un plant trié chronologiquement
+  @@index([userId]) // soins réalisés par un utilisateur
+  @@map("plant_care_log")
+}
+
+// ------------------------------------------------------------
+// PLANT HARVEST — récoltes
+// ------------------------------------------------------------
+model PlantHarvest {
+  id          String   @id @default(cuid())
+  plantId     String // FK vers Plant
+  userId      String? // auteur de la récolte (optionnel)
+  quantity    Decimal  @db.Decimal(10, 3) // quantité récoltée (3 décimales pour les grammes)
+  unit        String   @default("kg") @db.VarChar(16) // kg | g | unit | bunch…
+  quality     String?  @db.VarChar(32) // EXCELLENT | GOOD | FAIR | POOR
+  harvestedAt DateTime @default(now()) // date/heure de la récolte
+  notes       String? // notes libres
+  createdAt   DateTime @default(now()) // date d'enregistrement
+
+  plant Plant @relation(fields: [plantId], references: [id], onDelete: Cascade) // suppression plant → suppression récoltes
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull) // suppression user → récolte conservée
+
+  @@index([plantId, harvestedAt]) // récoltes d'un plant triées chronologiquement
+  @@index([userId]) // récoltes d'un utilisateur
+  @@map("plant_harvest")
+}
+
+// ------------------------------------------------------------
+// PLANT MEDIA — photos d'un plant (métadonnées uniquement)
+// ------------------------------------------------------------
+model PlantMedia {
+  id        String   @id @default(cuid())
+  plantId   String // FK vers Plant
+  url       String   @db.VarChar(1024) // URL du fichier (S3, CDN…)
+  type      String   @default("IMAGE") @db.VarChar(32) // IMAGE | VIDEO
+  mimeType  String?  @db.VarChar(128) // type MIME ("image/jpeg"…)
+  alt       String?  @db.VarChar(255) // texte alternatif (accessibilité)
+  caption   String? // légende affichée
+  position  Int      @default(0) // ordre d'affichage
+  createdAt DateTime @default(now()) // date d'ajout
+
+  plant Plant @relation(fields: [plantId], references: [id], onDelete: Cascade) // suppression plant → suppression médias
+
+  @@index([plantId, position]) // médias d'un plant triés
+  @@map("plant_media")
+}
+
+////////////////////////
+/////     BLOG     /////
+////////////////////////
+// ------------------------------------------------------------
+// POST
+// ------------------------------------------------------------
+model Post {
+  id          String    @id @default(cuid())
+  workspaceId String? // isolation tenant
+  teamId      String? // équipe propriétaire (filtrage métier uniquement, PAS un guard)
+  categoryId  String? // catégorie principale (optionnelle)
+  tag         String[]
+  title       String    @db.VarChar(255) // titre du post
+  slug        String    @db.VarChar(255) // slug unique par workspace
+  excerpt     String? // résumé court pour les listes
+  content     String? // corps du post (markdown ou HTML selon ta stack)
+  status      String    @default("DRAFT") @db.VarChar(32) // DRAFT | PUBLISHED | ARCHIVED
+  publishedAt DateTime? // date de publication (NULL tant que DRAFT)
+  createdAt   DateTime  @default(now()) // date de création
+  updatedAt   DateTime  @updatedAt // date de dernière modification (auto)
+
+  workspace Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression posts
+  team      Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull) // suppression team → posts conservés
+  category  PostCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull) // suppression catégorie → posts conservés
+  authors   PostAuthor[] // auteurs du post (via table de liaison)
+  comments  PostComment[] // commentaires du post
+  media     PostMedia[] // médias attachés au post
+  tags      PostTag[] // tags du post (N:N implicite via PostTag)
+  savePost  Json?         @db.JsonB
+
+  @@unique([workspaceId, slug]) // slug unique dans le périmètre du workspace
+  @@index([workspaceId, status]) // liste des posts par workspace + statut
+  @@index([workspaceId, publishedAt]) // tri chronologique des posts publiés
+  @@index([teamId]) // filtrage par équipe
+  @@index([categoryId]) // filtrage par catégorie
+  @@map("post")
+}
+
+// ------------------------------------------------------------
+// POST CATEGORY — catégorie scopée au workspace
+// ------------------------------------------------------------
+model PostCategory {
+  id          String   @id @default(cuid())
+  workspaceId String // catégorie propre à un workspace
+  name        String   @db.VarChar(128) // nom affiché ("Actualités", "Tutoriels"…)
+  slug        String   @db.VarChar(128) // slug unique par workspace
+  description String? // description optionnelle
+  position    Int      @default(0) // ordre d'affichage
+  createdAt   DateTime @default(now()) // date de création
+  updatedAt   DateTime @updatedAt // date de dernière modification
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression catégories
+  posts     Post[] // posts rattachés
+
+  @@unique([workspaceId, slug]) // slug unique par workspace
+  @@index([workspaceId, position]) // liste ordonnée des catégories
+  @@map("post_category")
+}
+
+// ------------------------------------------------------------
+// POST TAG — tag scopé au workspace, N:N avec Post
+// ------------------------------------------------------------
+model PostTag {
+  id          String   @id @default(cuid())
+  workspaceId String // tag propre à un workspace
+  name        String   @db.VarChar(64) // nom affiché ("javascript", "design"…)
+  slug        String   @db.VarChar(64) // slug unique par workspace
+  createdAt   DateTime @default(now()) // date de création
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression tags
+  posts     Post[] // posts portant ce tag (N:N implicite)
+
+  @@unique([workspaceId, slug]) // slug unique par workspace
+  @@index([workspaceId]) // liste des tags d'un workspace
+  @@map("post_tag")
+}
+
+// ------------------------------------------------------------
+// POST AUTHOR — table de liaison Post ↔ User avec rôle d'auteur
+// ------------------------------------------------------------
+model PostAuthor {
+  postId    String // FK vers Post
+  userId    String // FK vers User
+  role      String   @default("PRIMARY") @db.VarChar(32) // PRIMARY | CO_AUTHOR
+  order     Int      @default(0) // ordre d'affichage des auteurs
+  createdAt DateTime @default(now()) // date d'ajout comme auteur
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade) // suppression post → suppression liens
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade) // suppression user → suppression liens
+
+  @@id([postId, userId]) // un User ne peut être qu'UNE fois auteur d'un même Post
+  @@index([userId]) // liste des posts d'un auteur
+  @@index([postId, order]) // auteurs d'un post triés
+  @@map("post_author")
+}
+
+// ------------------------------------------------------------
+// POST COMMENT — commentaire plat (pas de hiérarchie)
+// ------------------------------------------------------------
+model PostComment {
+  id        String   @id @default(cuid())
+  postId    String // FK vers Post
+  authorId  String // FK vers User (auteur du commentaire)
+  content   String // corps du commentaire
+  status    String   @default("VISIBLE") @db.VarChar(32) // VISIBLE | HIDDEN | DELETED
+  createdAt DateTime @default(now()) // date de création
+  updatedAt DateTime @updatedAt // date de dernière modification
+
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade) // suppression post → suppression commentaires
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade) // suppression user → suppression commentaires
+
+  @@index([postId, createdAt]) // commentaires d'un post triés chronologiquement
+  @@index([authorId]) // commentaires d'un utilisateur
+  @@map("post_comment")
+}
+
+// ------------------------------------------------------------
+// POST MEDIA — média attaché à un post (métadonnées uniquement)
+// ------------------------------------------------------------
+model PostMedia {
+  id        String   @id @default(cuid())
+  postId    String // FK vers Post
+  url       String   @db.VarChar(1024) // URL du fichier (S3, CDN…)
+  type      String   @db.VarChar(32) // IMAGE | VIDEO | AUDIO | DOCUMENT
+  mimeType  String?  @db.VarChar(128) // type MIME ("image/jpeg"…)
+  alt       String?  @db.VarChar(255) // texte alternatif (accessibilité)
+  caption   String? // légende affichée sous le média
+  position  Int      @default(0) // ordre d'affichage dans le post
+  createdAt DateTime @default(now()) // date d'ajout
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade) // suppression post → suppression médias
+
+  @@index([postId, position]) // médias d'un post triés
+  @@map("post_media")
+}
+
+model SaveReciepes {
+  id           String     @id @default(cuid())
+  saveReciepes Json?      @db.JsonB
+  workspaceId  String?
+  authorId     String? // FK vers User (auteur du contenu)
+  createdAt    DateTime   @default(now()) // date de création
+  updatedAt    DateTime   @updatedAt // date de dernière modification
+  deltedAt     DateTime?
+  workspace    Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression posts
+  author       User?      @relation(fields: [authorId], references: [id], onDelete: SetNull)
+}
+
+model SavePlantes {
+  id          String     @id @default(cuid())
+  savePlantes Json?      @db.JsonB
+  workspaceId String?
+  authorId    String? // FK vers User (auteur du contenu)
+  createdAt   DateTime   @default(now()) // date de création
+  updatedAt   DateTime   @updatedAt // date de dernière modification
+  deltedAt    DateTime?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression posts
+  author      User?      @relation(fields: [authorId], references: [id], onDelete: SetNull)
+}
+
+model SavePosts {
+  id          String     @id @default(cuid())
+  savePosts   Json?      @db.JsonB
+  workspaceId String?
+  authorId    String? // FK vers User (auteur du contenu)
+  createdAt   DateTime   @default(now()) // date de création
+  updatedAt   DateTime   @updatedAt // date de dernière modification
+  deltedAt    DateTime?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression posts
+  author      User?      @relation(fields: [authorId], references: [id], onDelete: SetNull)
 }
