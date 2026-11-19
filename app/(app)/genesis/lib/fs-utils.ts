@@ -15,13 +15,14 @@ role:            Helpers FS partagés par les outils Genesis. Fournit un
                  pour que l'UI puisse afficher la racine réellement utilisée
                  (quand root est vide, c'est PROJECT_ROOT).
 
-flow:            PROJECT_ROOT → path.resolve(process.cwd()) une seule fois.
-                 resolveRoot(root?) → root ?? PROJECT_ROOT, résolu.
-                 getEffectiveRoot(root?) → resolveRoot(root) (alias lisible).
-                 assertInsideRoot(root, target) → contrôle préfixe.
-                 fileExists(absPath) → fs.stat.
-                 backupFile(root, absPath) → copie vers data/backup/.
-                 writeFileSafe(root, absPath, content) → backup puis écriture.
+flow:            PROJECT_ROOT → path.resolve(process.cwd()) une seule fois
+                 (avec /*turbopackIgnore: true. pour ne pas tracer tout le
+                 projet). resolveRoot(root?) → root ?? PROJECT_ROOT,
+                 résolu. getEffectiveRoot(root?) → resolveRoot(root) (alias
+                 lisible). assertInsideRoot(root, target) → contrôle
+                 préfixe. fileExists(absPath) → fs.stat. backupFile(root,
+                 absPath) → copie vers data/backup/. writeFileSafe(root,
+                 absPath, content) → backup puis écriture.
 
 ecosystem:       Genesis = [
                    "@/app/genesis/actions/createFile.ts",
@@ -59,9 +60,9 @@ useBy:           ["@/app/genesis/actions/createFile.ts",
 userStories:     ["*en tant que développeur je veux une racine projet stable et des exclusions persistantes",
                   "*en tant qu'utilisateur je veux voir la racine réellement utilisée"]
 status:          wip
-pathChecked:     ✘false
-metaDataChecked: ✘false
-scriptChecked:   ✘false
+pathChecked:     ✔true
+metaDataChecked: ✔true
+scriptChecked:   ✔true
 */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -70,8 +71,15 @@ import path from "node:path";
  * Racine projet, résolue UNE SEULE FOIS au chargement du module.
  * Ne dépend pas de process.cwd() à chaque appel : évite les changements
  * de racine entre appels (Turbopack, hot-reload, sous-dossiers).
+ *
+ * /*turbopackIgnore: true* / indique à Turbopack de ne PAS tracer tout le
+ * projet pour cet appel dynamique. Sans ce commentaire, Turbopack inclut
+ * l'intégralité du repo (y compris public/) dans le bundle serveur, ce qui
+ * gonfle le déploiement et peut dépasser les limites de taille.
  */
-export const PROJECT_ROOT: string = path.resolve(process.cwd());
+export const PROJECT_ROOT: string = path.resolve(
+  /*turbopackIgnore: true*/ process.cwd(),
+);
 
 export function resolveRoot(root?: string): string {
   if (root && root.trim()) {

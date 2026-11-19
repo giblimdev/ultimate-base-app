@@ -11,27 +11,58 @@ role:            Contenu de la page hub d'un projet Scrum. Server
                  loadScrumTree, affiche le résumé du projet
                  (ProjectSummaryCard), les liens vers les boards CRUD/DnD
                  (features, personas, epics, user stories, tasks, sprints)
-                 et un lien vers l'édition du projet. Si l'arbre est
-                 absent (projet introuvable ou saveScrums null), affiche
-                 un état vide avec retour à la liste. Les boards sont
-                 désactivés (badge « bientôt ») tant qu'ils ne sont pas
-                 implémentés (lots 4-6). Mobile first, responsive,
-                 accessible.
+                 et un lien vers l'édition du projet. Les 6 boards sont
+                 désormais ready: true. Si l'arbre est absent, affiche un
+                 état vide avec retour à la liste. Mobile first,
+                 responsive, accessible.
 
 flow:            ProjectDetailContent({ params }) → await params → await
                  loadScrumTree(projectId) → si null: NotFoundState →
                  sinon: header (nom + clé + statut) + ProjectSummaryCard
-                 + grille de liens boards + lien éditer.
+                 + grille de liens boards (ready: true) + lien éditer.
 
 ecosystem:       Scrum = [
+                   "@/app/(app)/scrum/actions/epic.ts",
+                   "@/app/(app)/scrum/actions/feature.ts",
+                   "@/app/(app)/scrum/actions/persona.ts",
+                   "@/app/(app)/scrum/actions/project.ts",
+                   "@/app/(app)/scrum/actions/sprint.ts",
+                   "@/app/(app)/scrum/actions/task.ts",
+                   "@/app/(app)/scrum/actions/us.ts",
+                   "@/app/(app)/scrum/page.tsx",
+                   "@/app/(app)/scrum/projects/[projectId]/edit/page.tsx",
+                   "@/app/(app)/scrum/projects/[projectId]/epics/page.tsx",
+                   "@/app/(app)/scrum/projects/[projectId]/features/page.tsx",
                    "@/app/(app)/scrum/projects/[projectId]/page.tsx",
+                   "@/app/(app)/scrum/projects/[projectId]/personas/page.tsx",
                    "@/app/(app)/scrum/projects/[projectId]/project-detail-content.tsx",
+                   "@/app/(app)/scrum/projects/[projectId]/sprints/page.tsx",
+                   "@/app/(app)/scrum/projects/[projectId]/tasks/page.tsx",
+                   "@/app/(app)/scrum/projects/[projectId]/us/page.tsx",
+                   "@/app/(app)/scrum/projects/new/page.tsx",
+                   "@/app/(app)/scrum/projects/page.tsx",
+                   "@/components/scrum/EpicBoard.tsx",
+                   "@/components/scrum/FeatureBoard.tsx",
+                   "@/components/scrum/JsonEditor.tsx",
+                   "@/components/scrum/PersonaBoard.tsx",
+                   "@/components/scrum/ProjectForm.tsx",
                    "@/components/scrum/ProjectSummaryCard.tsx",
+                   "@/components/scrum/SprintBoard.tsx",
+                   "@/components/scrum/TaskBoard.tsx",
+                   "@/components/scrum/UserStoryBoard.tsx",
+                   "@/lib/scrum/access.ts",
+                   "@/lib/scrum/defaults.ts",
+                   "@/lib/scrum/json-io.ts",
+                   "@/lib/scrum/mutations.ts",
+                   "@/lib/scrum/queries.ts",
+                   "@/lib/scrum/schema.ts",
+                   "@/lib/scrum/types.ts",
                  ]
 relatedFiles:    ["@/lib/scrum/queries.ts",
                   "@/components/scrum/ProjectSummaryCard.tsx",
-                  "@/app/(app)/scrum/projects/page.tsx",
-                  "@/components/scrum/ProjectForm.tsx"]
+                  "@/app/(app)/scrum/projects/[projectId]/page.tsx",
+                  "@/components/scrum/ProjectForm.tsx",
+                  "@/app/(app)/scrum/projects/[projectId]/edit/page.tsx"]
 imports:         ["next/link", "lucide-react", "@/lib/scrum/queries",
                   "@/components/scrum/ProjectSummaryCard",
                   "@/components/ui/badge", "@/components/ui/button",
@@ -87,7 +118,7 @@ function boardsFor(projectId: string): BoardLink[] {
       description: "Découper le périmètre fonctionnel.",
       href: `/scrum/projects/${projectId}/features`,
       icon: Layers,
-      ready: false,
+      ready: true,
     },
     {
       id: "personas",
@@ -95,7 +126,7 @@ function boardsFor(projectId: string): BoardLink[] {
       description: "Décrire les utilisateurs cibles.",
       href: `/scrum/projects/${projectId}/personas`,
       icon: UserRound,
-      ready: false,
+      ready: true,
     },
     {
       id: "epics",
@@ -103,7 +134,7 @@ function boardsFor(projectId: string): BoardLink[] {
       description: "Regrouper les US en epics.",
       href: `/scrum/projects/${projectId}/epics`,
       icon: Target,
-      ready: false,
+      ready: true,
     },
     {
       id: "us",
@@ -111,7 +142,7 @@ function boardsFor(projectId: string): BoardLink[] {
       description: "Rédiger et estimer les US.",
       href: `/scrum/projects/${projectId}/us`,
       icon: ListTodo,
-      ready: false,
+      ready: true,
     },
     {
       id: "tasks",
@@ -119,7 +150,7 @@ function boardsFor(projectId: string): BoardLink[] {
       description: "Décomposer les US en tâches.",
       href: `/scrum/projects/${projectId}/tasks`,
       icon: ClipboardList,
-      ready: false,
+      ready: true,
     },
     {
       id: "sprints",
@@ -127,7 +158,7 @@ function boardsFor(projectId: string): BoardLink[] {
       description: "Planifier les itérations.",
       href: `/scrum/projects/${projectId}/sprints`,
       icon: CalendarRange,
-      ready: false,
+      ready: true,
     },
   ];
 }
