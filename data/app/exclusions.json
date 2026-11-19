@@ -7,7 +7,10 @@
     "build",
     ".turbo",
     "data/app",
-    ".agents"
+    ".agents",
+    "prisma",
+    "data",
+    "components/ui"
   ],
   "files": [
     ".env",

@@ -180,6 +180,7 @@ model User {
   saveReciepes  SaveReciepes[]
   savePlantes   SavePlantes[]
   savePosts     SavePosts[]
+  scrums        Scrum[]
 
   @@index([platformRole])
   @@map("user")
@@ -372,6 +373,7 @@ model Workspace {
   saveReciepes   SaveReciepes[]
   savePlantes    SavePlantes[]
   savePosts      SavePosts[]
+  scrums         Scrum[]
 
   @@index([status])
   @@map("workspace")
@@ -1272,10 +1274,10 @@ model PostComment {
 model PostMedia {
   id        String   @id @default(cuid())
   postId    String // FK vers Post
-  url       String   @db.VarChar(1024) // URL du fichier (S3, CDN…)
-  type      String   @db.VarChar(32) // IMAGE | VIDEO | AUDIO | DOCUMENT
-  mimeType  String?  @db.VarChar(128) // type MIME ("image/jpeg"…)
-  alt       String?  @db.VarChar(255) // texte alternatif (accessibilité)
+  url       String // URL du fichier (S3, CDN…)
+  type      String // IMAGE | VIDEO | AUDIO | DOCUMENT
+  mimeType  String? // type MIME ("image/jpeg"…)
+  alt       String? // texte alternatif (accessibilité)
   caption   String? // légende affichée sous le média
   position  Int      @default(0) // ordre d'affichage dans le post
   createdAt DateTime @default(now()) // date d'ajout
@@ -1284,6 +1286,22 @@ model PostMedia {
 
   @@index([postId, position]) // médias d'un post triés
   @@map("post_media")
+}
+
+///////////////////////////
+/////     DB JSON     /////
+///////////////////////////
+
+model Scrum {
+  id          String     @id @default(cuid())
+  saveScrums  Json?      @db.JsonB
+  workspaceId String?
+  authorId    String? // FK vers User (auteur du contenu)
+  createdAt   DateTime   @default(now()) // date de création
+  updatedAt   DateTime   @updatedAt // date de dernière modification
+  deltedAt    DateTime?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade) // suppression workspace → suppression posts
+  author      User?      @relation(fields: [authorId], references: [id], onDelete: SetNull)
 }
 
 model SaveReciepes {

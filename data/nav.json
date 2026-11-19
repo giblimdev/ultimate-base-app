@@ -1,0 +1,187 @@
+[
+  {
+    "id": "home",
+    "code": "·",
+    "label": "Accueil",
+    "href": "/",
+    "icon": "LayoutDashboard",
+    "accent": "text-blue-600 dark:text-blue-400",
+    "items": []
+  },
+  {
+    "id": "app",
+    "code": "A",
+    "label": "App · Socle",
+    "href": "/app",
+    "icon": "ShieldCheck",
+    "accent": "text-blue-600 dark:text-blue-400",
+    "items": [
+      {
+        "label": "Vue d'ensemble",
+        "href": "/app",
+        "icon": "ShieldCheck",
+        "status": "planned"
+      },
+      {
+        "label": "Administration",
+        "href": "/app/admin",
+        "icon": "Settings",
+        "status": "planned"
+      }
+    ]
+  },
+  {
+    "id": "scrum",
+    "code": "B",
+    "label": "Scrum · Conception",
+    "href": "/scrum",
+    "icon": "ListChecks",
+    "accent": "text-violet-600 dark:text-violet-400",
+    "items": [
+      
+        {
+        "label": "Projets",
+        "href": "/scrum/projects",
+        "icon": "FolderKanban",
+        "status": "ready"
+      },
+      {
+        "label": "Sprints",
+        "href": "/scrum/sprints",
+        "icon": "CalendarRange",
+        "status": "planned"
+      },
+      {
+        "label": "User Stories",
+        "href": "/scrum/us",
+        "icon": "ListTodo",
+        "status": "planned"
+      },
+      {
+        "label": "Epics",
+        "href": "/scrum/epics",
+        "icon": "Target",
+        "status": "planned"
+      }
+    ]
+  },
+  {
+    "id": "genesis",
+    "code": "C",
+    "label": "Genesis · Développement",
+    "href": "/genesis",
+    "icon": "Wrench",
+    "accent": "text-emerald-600 dark:text-emerald-400",
+    "items": [
+      {
+        "label": "Hub",
+        "href": "/genesis",
+        "icon": "Wrench",
+        "status": "ready"
+      },
+      {
+        "label": "Create Files",
+        "href": "/genesis/create-files",
+        "icon": "FileCode2",
+        "status": "ready"
+      },
+      {
+        "label": "Read Files",
+        "href": "/genesis/read-files",
+        "icon": "FileCode2",
+        "status": "ready"
+      },
+      {
+        "label": "History",
+        "href": "/genesis/history",
+        "icon": "History",
+        "status": "ready"
+      },
+      {
+        "label": "Header Checker",
+        "href": "/genesis/quality/header",
+        "icon": "ListChecks",
+        "status": "planned"
+      },
+      {
+        "label": "TypeScript Checker",
+        "href": "/genesis/quality/typescript",
+        "icon": "Terminal",
+        "status": "planned"
+      },
+      {
+        "label": "Git Manager",
+        "href": "/genesis/git",
+        "icon": "GitBranch",
+        "status": "planned"
+      }
+    ]
+  },
+  {
+    "id": "business",
+    "code": "D",
+    "label": "Business · Métier",
+    "href": "/business",
+    "icon": "Briefcase",
+    "accent": "text-orange-600 dark:text-orange-400",
+    "items": [
+      {
+        "label": "Onboarding",
+        "href": "/business",
+        "icon": "Briefcase",
+        "status": "ready"
+      },
+      {
+        "label": "Administration",
+        "href": "/business/admin",
+        "icon": "Building2",
+        "status": "planned"
+      },
+      {
+        "label": "Configuration",
+        "href": "/business/config",
+        "icon": "Settings",
+        "status": "planned"
+      }
+    ]
+  },
+  {
+    "id": "dev",
+    "code": "·",
+    "label": "Référence dev",
+    "href": "/dev",
+    "icon": "Terminal",
+    "accent": "text-zinc-600 dark:text-zinc-400",
+    "items": [
+      {
+        "label": "Commandes & composants",
+        "href": "/dev",
+        "icon": "Terminal",
+        "status": "ready"
+      },
+      {
+        "label": "Schéma Prisma",
+        "href": "/dev/schema",
+        "icon": "Database",
+        "status": "ready"
+      }
+    ]
+  },
+  {
+    "id": "superadmin",
+    "code": "S",
+    "label": "Superadmin · Plateforme",
+    "href": "/superadmin",
+    "icon": "ShieldCheck",
+    "accent": "text-rose-600 dark:text-rose-400",
+    "requiresPlatformRole": "SUPER_ADMIN",
+    "items": [
+      {
+        "label": "Rôles plateforme",
+        "href": "/superadmin",
+        "icon": "ShieldCheck",
+        "status": "ready"
+      }
+    ]
+  }
+]

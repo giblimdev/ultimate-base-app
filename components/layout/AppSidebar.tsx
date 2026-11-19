@@ -56,11 +56,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
-import {
-  NAV_MODULES,
-  filterNavForRole,
-  getNavItemByPath,
-} from "@/data/nav";
+import { NAV_MODULES, filterNavForRole, getNavItemByPath } from "@/data/nav";
 import type { PlatformRole } from "@/modules/rbac/platform-role";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -108,10 +104,6 @@ export function MobileNavTrigger({ platformRole }: AppSidebarProps) {
   const [open, setOpen] = React.useState(false);
   const modules = filterNavForRole(NAV_MODULES, platformRole);
 
-  React.useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
@@ -137,6 +129,7 @@ export function MobileNavTrigger({ platformRole }: AppSidebarProps) {
           pathname={pathname}
           modules={modules}
           platformRole={platformRole}
+          onNavigate={() => setOpen(false)}
         />
       </SheetContent>
     </Sheet>
@@ -147,12 +140,14 @@ type SidebarContentProps = {
   pathname: string;
   modules: ReturnType<typeof filterNavForRole>;
   platformRole: PlatformRole;
+  onNavigate?: () => void;
 };
 
 function SidebarContent({
   pathname,
   modules,
   platformRole,
+  onNavigate,
 }: SidebarContentProps) {
   const active = getNavItemByPath(pathname);
 
@@ -161,6 +156,7 @@ function SidebarContent({
       <div className="flex h-14 items-center border-b border-border px-4">
         <Link
           href="/"
+          onClick={onNavigate}
           className="flex items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-500 text-sm font-bold text-white">
@@ -183,6 +179,7 @@ function SidebarContent({
               <div key={module.id} className="flex flex-col gap-0.5">
                 <Link
                   href={module.href}
+                  onClick={onNavigate}
                   aria-current={
                     moduleActive && !active?.item ? "page" : undefined
                   }
@@ -217,15 +214,15 @@ function SidebarContent({
                         <li key={item.href}>
                           <Link
                             href={planned ? "#" : item.href}
-                            aria-current={itemActive ? "page" : undefined}
-                            aria-disabled={planned || undefined}
                             onClick={
                               planned
                                 ? (e) => {
                                     e.preventDefault();
                                   }
-                                : undefined
+                                : onNavigate
                             }
+                            aria-current={itemActive ? "page" : undefined}
+                            aria-disabled={planned || undefined}
                             className={cn(
                               "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
                               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

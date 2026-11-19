@@ -92,25 +92,23 @@ Header  place
 
 
 /////
-les dossieret page de presentation ?
+les dossier et page de presentation ?
 ////
 
 
 
 
 /////
-composanr retour
+composant retour
 /////
 
 
 ///
-les menu des tools peuvennt etre des fky card
+les menu des tools peuvennt etre des fly card
 ////
 
 
-////
-page  ()
-///
+
 
 
 /////
@@ -137,3 +135,54 @@ use save JSONB
 
 
 
+/////
+tools creation de nav
+//////////
+
+
+
+
+app/(app)/scrum/
+  page.tsx                          ← présentation (fait)
+  layout.tsx                        ← NEW : guard workspace + shell module
+  projects/
+    page.tsx                        ← NEW : liste des projets (DB)
+    new/page.tsx                    ← NEW : créer un projet
+    [projectId]/
+      page.tsx                      ← NEW : détail projet (hub)
+      edit/page.tsx                 ← NEW : éditer projet
+  sprints/page.tsx                  ← NEW : Sprint Manager (DnD)
+  us/page.tsx                       ← NEW : US Manager (DnD)
+  epics/page.tsx                    ← NEW : Epic Manager (DnD)
+
+lib/scrum/
+  types.ts                          ← NEW : ScrumTree, Project, Feature, Persona, Epic, US, Task, Sprint
+  schema.ts                         ← NEW : Zod schemas (tree + sous-entités)
+  json-io.ts                        ← NEW : parse/serialize JSON éditable (copier/coller)
+  access.ts                         ← NEW : guard workspace + ownership (server-only)
+  queries.ts                        ← NEW : lecture DB (findMany/findUnique Scrum)
+  mutations.ts                      ← NEW : helpers de mutation saveScrums
+  defaults.ts                       ← NEW : arbre vide + factory
+
+app/(app)/scrum/actions/
+  project.ts                        ← NEW : Server Actions CRUD Project
+  feature.ts                        ← NEW : Server Actions CRUD Feature
+  persona.ts                        ← NEW : Server Actions CRUD Persona
+  epic.ts                           ← NEW : Server Actions CRUD Epic
+  us.ts                             ← NEW : Server Actions CRUD UserStory
+  task.ts                           ← NEW : Server Actions CRUD Task
+  sprint.ts                         ← NEW : Server Actions CRUD Sprint
+  dnd.ts                            ← NEW : Server Actions DnD (tasks→US, US→epic, US→sprint)
+
+components/scrum/
+  ProjectSummaryCard.tsx            ← fait
+  ProjectList.tsx                   ← NEW : liste (server) + cartes
+  ProjectForm.tsx                   ← NEW : form create/edit (client, RHF+Zod)
+  JsonEditor.tsx                    ← NEW : textarea JSON éditable générique (client)
+  FeatureBoard.tsx                  ← NEW : CRUD features (client)
+  PersonaBoard.tsx                  ← NEW : CRUD personas (client)
+  EpicBoard.tsx                     ← NEW : CRUD epics + DnD US→epic (client)
+  UserStoryBoard.tsx                ← NEW : CRUD US + DnD tasks→US (client)
+  TaskBoard.tsx                     ← NEW : CRUD tasks (client)
+  SprintBoard.tsx                   ← NEW : CRUD sprints + DnD US→sprint (client)
+  DndBoard.tsx                      ← NEW : wrapper dnd-kit réutilisable

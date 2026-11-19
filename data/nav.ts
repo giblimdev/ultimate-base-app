@@ -7,35 +7,39 @@ type:            config
 generic:         true
 
 role:            Source de vérité unique de la navigation globale de
-                 l'application. Décrit les modules (Accueil, App, Scrum,
-                 Genesis, Business, Dev, Superadmin) et leurs entrées.
-                 Chaque module peut porter un requiresPlatformRole
-                 optionnel : s'il est présent, le module n'est visible
-                 que si l'utilisateur a ce rôle plateforme (ou supérieur).
-                 Le filtrage est appliqué côté client par AppSidebar ;
-                 la sécurité réelle sera ajoutée côté serveur via
-                 layout.tsx quand Better Auth sera installé. Genesis
-                 expose Create Files, Read Files et History en "ready"
-                 (les autres outils restent "planned" jusqu'à
-                 implémentation). Dev expose la référence commandes et
-                 le schéma Prisma (page /dev/schema). L'icône Database
-                 (lucide-react) est importée pour la sous-entrée
-                 "Schéma Prisma".
+                 l'application. Les données sont externalisées dans
+                 data/nav.json (éditable sans toucher au code TS). Ce
+                 module importe le JSON, mappe les noms d'icônes vers les
+                 composants lucide-react, valide les types NavModule /
+                 NavItem, et expose NAV_MODULES ainsi que les helpers
+                 getNavItemByPath et filterNavForRole. Chaque module peut
+                 porter un requiresPlatformRole optionnel : s'il est
+                 présent, le module n'est visible que si l'utilisateur a
+                 ce rôle plateforme (ou supérieur). Le filtrage est
+                 appliqué côté client par AppSidebar ; la sécurité réelle
+                 sera ajoutée côté serveur via layout.tsx quand Better
+                 Auth sera installé. Le module Scrum expose désormais
+                 Vue d'ensemble, Projets, Sprints, User Stories et Epics
+                 (d'où l'ajout de FolderKanban au registre ICONS).
 
-flow:            NAV_MODULES (const) → filtré par filterNavForRole(role)
-                 dans AppSidebar → rendu. getNavItemByPath(pathname) →
+flow:            data/nav.json → import navJson → map icons via ICONS →
+                 NAV_MODULES (NavModule[]) → filterNavForRole(role) dans
+                 AppSidebar → rendu. getNavItemByPath(pathname) →
                  recherche récursive de l'item actif.
 
 ecosystem:       Navigation = [
                    "@/components/layout/AppHeader.tsx",
                    "@/components/layout/AppSidebar.tsx",
                    "@/data/nav.ts",
+                   "@/data/nav.json",
                    "@/modules/rbac/platform-role.ts",
                  ]
-relatedFiles:    ["@/components/layout/AppSidebar.tsx",
+relatedFiles:    ["@/data/nav.json",
+                  "@/components/layout/AppSidebar.tsx",
                   "@/components/layout/AppHeader.tsx",
                   "@/modules/rbac/platform-role.ts"]
-imports:         ["lucide-react", "@/modules/rbac/platform-role"]
+imports:         ["lucide-react", "@/modules/rbac/platform-role",
+                  "./nav.json"]
 exports:         ["NAV_MODULES", "NavModule", "NavItem",
                   "NavStatus", "getNavItemByPath", "filterNavForRole"]
 useBy:           ["@/components/layout/AppSidebar.tsx",
@@ -45,24 +49,29 @@ userStories:     ["*en tant que développeur je veux une navigation centralisée
                   "*en tant qu'utilisateur je veux accéder à tous les modules depuis n'importe quelle page",
                   "*en tant qu'utilisateur je ne veux pas voir les modules auxquels je n'ai pas accès",
                   "*en tant qu'utilisateur je veux accéder à l'historique des fichiers depuis la navigation",
-                  "*en tant que développeur je veux accéder au schéma Prisma depuis la navigation"]
+                  "*en tant que développeur je veux accéder au schéma Prisma depuis la navigation",
+                  "*en tant que développeur je veux pouvoir éditer la navigation dans un JSON sans toucher au code"]
 status:          wip
 pathChecked:     ✔true
 metaDataChecked: ✔true
-scriptChecked:   ✘false
+scriptChecked:   ✔true
 */
 import type { LucideIcon } from "lucide-react";
 import {
   Briefcase,
   Building2,
+  CalendarRange,
   Database,
   FileCode2,
+  FolderKanban,
   GitBranch,
   History as HistoryIcon,
   LayoutDashboard,
   ListChecks,
+  ListTodo,
   Settings,
   ShieldCheck,
+  Target,
   Terminal,
   Wrench,
 } from "lucide-react";
@@ -70,6 +79,7 @@ import {
   hasPlatformRole,
   type PlatformRole,
 } from "@/modules/rbac/platform-role";
+import navJson from "./nav.json";
 
 export type NavStatus = "ready" | "planned";
 
@@ -92,186 +102,67 @@ export type NavModule = {
   items: NavItem[];
 };
 
-export const NAV_MODULES: NavModule[] = [
-  {
-    id: "home",
-    code: "·",
-    label: "Accueil",
-    href: "/",
-    icon: LayoutDashboard,
-    accent: "text-blue-600 dark:text-blue-400",
-    items: [],
-  },
-  {
-    id: "app",
-    code: "A",
-    label: "App · Socle",
-    href: "/app",
-    icon: ShieldCheck,
-    accent: "text-blue-600 dark:text-blue-400",
-    items: [
-      {
-        label: "Vue d'ensemble",
-        href: "/app",
-        icon: ShieldCheck,
-        status: "planned",
-      },
-      {
-        label: "Administration",
-        href: "/app/admin",
-        icon: Settings,
-        status: "planned",
-      },
-    ],
-  },
-  {
-    id: "scrum",
-    code: "B",
-    label: "Scrum · Conception",
-    href: "/scrum",
-    icon: ListChecks,
-    accent: "text-violet-600 dark:text-violet-400",
-    items: [
-      {
-        label: "Items",
-        href: "/scrum/items",
-        icon: ListChecks,
-        status: "planned",
-      },
-      {
-        label: "Epic Manager",
-        href: "/scrum/epics",
-        icon: ListChecks,
-        status: "planned",
-      },
-      {
-        label: "Sprint Manager",
-        href: "/scrum/sprints",
-        icon: ListChecks,
-        status: "planned",
-      },
-    ],
-  },
-  {
-    id: "genesis",
-    code: "C",
-    label: "Genesis · Développement",
-    href: "/genesis",
-    icon: Wrench,
-    accent: "text-emerald-600 dark:text-emerald-400",
-    items: [
-      {
-        label: "Hub",
-        href: "/genesis",
-        icon: Wrench,
-        status: "ready",
-      },
-      {
-        label: "Create Files",
-        href: "/genesis/create-files",
-        icon: FileCode2,
-        status: "ready",
-      },
-      {
-        label: "Read Files",
-        href: "/genesis/read-files",
-        icon: FileCode2,
-        status: "ready",
-      },
-      {
-        label: "History",
-        href: "/genesis/history",
-        icon: HistoryIcon,
-        status: "ready",
-      },
-      {
-        label: "Header Checker",
-        href: "/genesis/quality/header",
-        icon: ListChecks,
-        status: "planned",
-      },
-      {
-        label: "TypeScript Checker",
-        href: "/genesis/quality/typescript",
-        icon: Terminal,
-        status: "planned",
-      },
-      {
-        label: "Git Manager",
-        href: "/genesis/git",
-        icon: GitBranch,
-        status: "planned",
-      },
-    ],
-  },
-  {
-    id: "business",
-    code: "D",
-    label: "Business · Métier",
-    href: "/business",
-    icon: Briefcase,
-    accent: "text-orange-600 dark:text-orange-400",
-    items: [
-      {
-        label: "Onboarding",
-        href: "/business",
-        icon: Briefcase,
-        status: "ready",
-      },
-      {
-        label: "Administration",
-        href: "/business/admin",
-        icon: Building2,
-        status: "planned",
-      },
-      {
-        label: "Configuration",
-        href: "/business/config",
-        icon: Settings,
-        status: "planned",
-      },
-    ],
-  },
-  {
-    id: "dev",
-    code: "·",
-    label: "Référence dev",
-    href: "/dev",
-    icon: Terminal,
-    accent: "text-zinc-600 dark:text-zinc-400",
-    items: [
-      {
-        label: "Commandes & composants",
-        href: "/dev",
-        icon: Terminal,
-        status: "ready",
-      },
-      {
-        label: "Schéma Prisma",
-        href: "/dev/schema",
-        icon: Database,
-        status: "ready",
-      },
-    ],
-  },
-  {
-    id: "superadmin",
-    code: "S",
-    label: "Superadmin · Plateforme",
-    href: "/superadmin",
-    icon: ShieldCheck,
-    accent: "text-rose-600 dark:text-rose-400",
-    requiresPlatformRole: "SUPER_ADMIN",
-    items: [
-      {
-        label: "Rôles plateforme",
-        href: "/superadmin",
-        icon: ShieldCheck,
-        status: "ready",
-      },
-    ],
-  },
-];
+const ICONS = {
+  Briefcase,
+  Building2,
+  CalendarRange,
+  Database,
+  FileCode2,
+  FolderKanban,
+  GitBranch,
+  History: HistoryIcon,
+  LayoutDashboard,
+  ListChecks,
+  ListTodo,
+  Settings,
+  ShieldCheck,
+  Target,
+  Terminal,
+  Wrench,
+} satisfies Record<string, LucideIcon>;
+
+type IconName = keyof typeof ICONS;
+
+type RawNavItem = {
+  label: string;
+  href: string;
+  icon: IconName;
+  status: NavStatus;
+  description?: string;
+};
+
+type RawNavModule = {
+  id: string;
+  code: string;
+  label: string;
+  href: string;
+  icon: IconName;
+  accent: string;
+  requiresPlatformRole?: PlatformRole;
+  items: RawNavItem[];
+};
+
+function resolveIcon(name: string): LucideIcon {
+  const icon = ICONS[name as IconName];
+  if (!icon) {
+    throw new Error(
+      `[nav] Icône inconnue "${name}" dans data/nav.json. ` +
+        `Ajoutez-la au registre ICONS dans data/nav.ts.`,
+    );
+  }
+  return icon;
+}
+
+export const NAV_MODULES: NavModule[] = (navJson as RawNavModule[]).map(
+  (module) => ({
+    ...module,
+    icon: resolveIcon(module.icon),
+    items: module.items.map((item) => ({
+      ...item,
+      icon: resolveIcon(item.icon),
+    })),
+  }),
+);
 
 export function getNavItemByPath(pathname: string): {
   module: NavModule;
