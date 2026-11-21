@@ -60,12 +60,19 @@ une boîte à outils de développement et de qualité (Genesis) ;
 un espace métier isolé du socle (Business App).
 
 
+
+
+
+
+
 Architecture complète des fichiers à développer
 ultimate-base-app/
-//// 
-c'est quoi cette merde a deplacer dans data data/appConfig ????? a supprimer ???? il y a data/app !
-C:\Users\jean-philippe\Desktop\ultimate-base-app\MiamMiamListo\data\app\exclusions.json
+
+///
+spinner Connection
 /////
+
+
 
 /// non de l'app dans config.
 generer les commande dans dev/page
